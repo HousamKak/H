@@ -22,10 +22,15 @@ export class ClaudeCodeProvider implements LLMProvider {
 
   async generate(params: GenerateParams): Promise<GenerateResult> {
     const systemMessage = params.messages.find((m) => m.role === 'system');
-    const lastUserMessage = [...params.messages].reverse().find((m) => m.role === 'user');
 
-    const prompt = lastUserMessage?.content ?? '';
-    const args = ['--print', '--output-format', 'text'];
+    // Build a single prompt from the full conversation (excluding system)
+    const conversationMessages = params.messages.filter((m) => m.role !== 'system');
+    const prompt = conversationMessages.map((m) => {
+      const role = m.role === 'assistant' ? 'Assistant' : 'Human';
+      return `${role}: ${m.content}`;
+    }).join('\n\n') + '\n\nAssistant:';
+
+    const args = ['--print', '--output-format', 'json'];
 
     if (systemMessage) {
       args.push('--system-prompt', systemMessage.content);
@@ -33,10 +38,28 @@ export class ClaudeCodeProvider implements LLMProvider {
 
     const result = await this.execCli(args, prompt);
 
+    // Parse the JSON envelope from Claude Code CLI
+    let content: string;
+    let usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+    try {
+      const envelope = JSON.parse(result.stdout);
+      content = envelope.result ?? result.stdout.trim();
+      if (envelope.usage) {
+        usage = {
+          inputTokens: envelope.usage.input_tokens ?? 0,
+          outputTokens: envelope.usage.output_tokens ?? 0,
+          totalTokens: (envelope.usage.input_tokens ?? 0) + (envelope.usage.output_tokens ?? 0),
+        };
+      }
+    } catch {
+      content = stripAnsi(result.stdout.trim());
+    }
+
     return {
-      content: stripAnsi(result.stdout.trim()),
+      content,
       model: 'claude-code-cli',
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      usage,
       finishReason: result.exitCode === 0 ? 'end_turn' : 'unknown',
     };
   }

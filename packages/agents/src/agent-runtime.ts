@@ -109,11 +109,19 @@ export class AgentRuntime {
       `- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.inputSchema)}`
     ).join('\n');
 
+    const jsonInstructions = `You MUST respond with ONLY valid JSON, no other text. Use one of these two formats:
+
+To use tools:
+{"thought": "your reasoning", "tool_calls": [{"name": "tool_name", "arguments": {"arg": "value"}}]}
+
+When the task is complete:
+{"thought": "summary of what was done", "done": true, "result": {"summary": "what was accomplished"}}`;
+
     this.conversationHistory = [
-      { role: 'system', content: this.definition.systemPrompt + memoryContext },
+      { role: 'system', content: this.definition.systemPrompt + memoryContext + '\n\nCRITICAL: ' + jsonInstructions },
       {
         role: 'user',
-        content: `## Task\n**${task.title}**\n\n${task.description}\n\n## Available Tools\n${toolsDescription}\n\n## Instructions\nWork on this task. Use tools by responding with JSON:\n{"thought": "your reasoning", "tool_calls": [{"name": "tool_name", "arguments": {...}}]}\n\nWhen the task is complete, respond with:\n{"thought": "summary", "done": true, "result": {"summary": "what was done", "filesChanged": [...]}}`
+        content: `## Task\n**${task.title}**\n\n${task.description}\n\n## Available Tools\n${toolsDescription}\n\nRespond with JSON only.`
       },
     ];
 
@@ -130,6 +138,7 @@ export class AgentRuntime {
       });
 
       // THINK: Call LLM
+      console.log(`[Agent:${this.instance.definitionRole}] Turn ${turnCount} - calling LLM...`);
       const response = await this.deps.llmProvider.generate({
         messages: this.conversationHistory,
         temperature: this.definition.temperature,
@@ -137,15 +146,45 @@ export class AgentRuntime {
       });
 
       const content = response.content;
+      console.log(`[Agent:${this.instance.definitionRole}] Turn ${turnCount} - response (${content.length} chars): ${content.substring(0, 200)}`);
       this.conversationHistory.push({ role: 'assistant', content });
 
-      // Parse response
+      // Parse response - try to extract JSON from the response
       let parsed: any;
       try {
         const jsonStr = content.match(/\{[\s\S]*\}/)?.[0];
-        parsed = jsonStr ? JSON.parse(jsonStr) : { thought: content, done: false };
+        parsed = jsonStr ? JSON.parse(jsonStr) : null;
       } catch {
-        parsed = { thought: content, done: false };
+        parsed = null;
+      }
+
+      // If we couldn't parse JSON, remind the LLM and continue
+      if (!parsed) {
+        this.conversationHistory.push({
+          role: 'user',
+          content: 'Your response was not valid JSON. You MUST respond with ONLY a JSON object. Example: {"thought": "my reasoning", "done": true, "result": {"summary": "what I did"}}',
+        });
+        continue;
+      }
+
+      // Normalize tool call format: {"tool": "x", "parameters": {...}} → tool_calls array
+      if (parsed.tool && !parsed.tool_calls) {
+        parsed.tool_calls = [{
+          name: parsed.tool,
+          arguments: parsed.parameters ?? parsed.arguments ?? parsed.args ?? {},
+        }];
+        if (!parsed.thought) parsed.thought = `Using tool: ${parsed.tool}`;
+      }
+
+      // Normalize response: accept various completion indicators
+      const isDone = parsed.done === true
+        || parsed.status === 'success'
+        || parsed.status === 'complete'
+        || parsed.status === 'completed'
+        || (parsed.result && !parsed.tool_calls);
+      if (isDone && !parsed.done) {
+        parsed.done = true;
+        if (!parsed.thought) parsed.thought = parsed.summary ?? parsed.message ?? 'Task completed';
       }
 
       // Report progress
@@ -217,6 +256,12 @@ export class AgentRuntime {
         this.conversationHistory.push({
           role: 'user',
           content: `## Tool Results\n${toolResults.join('\n\n')}`,
+        });
+      } else if (!parsed.done) {
+        // No tool calls and not done - nudge toward action or completion
+        this.conversationHistory.push({
+          role: 'user',
+          content: 'You must either use a tool ({"thought": "...", "tool_calls": [...]}) or mark the task as done ({"thought": "...", "done": true, "result": {"summary": "..."}}).',
         });
       }
 

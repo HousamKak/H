@@ -42,8 +42,13 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
   });
 
   app.post('/api/tasks', async (req, res) => {
-    const task = await orchestrator.createTask(req.body);
-    res.status(201).json(task);
+    try {
+      const task = await orchestrator.createTask(req.body);
+      res.status(201).json(task);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
   });
 
   app.get('/api/tasks/:id', (req, res) => {
@@ -53,15 +58,25 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
   });
 
   // ---- Agents ----
+  app.get('/api/agents/definitions', (_req, res) => {
+    res.json(orchestrator.agents.getAllDefinitions());
+  });
+
   app.get('/api/agents', (req, res) => {
     const projectId = req.query.projectId as string | undefined;
     res.json(orchestrator.getAgents(projectId));
   });
 
   app.post('/api/agents/spawn', async (req, res) => {
-    const { role, projectId } = req.body;
-    const agent = await orchestrator.spawnAgent(role, projectId);
-    res.status(201).json(agent);
+    try {
+      const { role, projectId } = req.body;
+      const agent = await orchestrator.spawnAgent(role, projectId);
+      res.status(201).json(agent);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[H] Spawn error:', message);
+      res.status(500).json({ error: message });
+    }
   });
 
   app.delete('/api/agents/:id', async (req, res) => {
@@ -71,9 +86,14 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
 
   // ---- Chat ----
   app.post('/api/chat', async (req, res) => {
-    const { message } = req.body;
-    const response = await orchestrator.handleMessage(message, 'api');
-    res.json({ response });
+    try {
+      const { message } = req.body;
+      const response = await orchestrator.handleMessage(message, 'api');
+      res.json({ response });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
   });
 
   // ---- Queue Status ----

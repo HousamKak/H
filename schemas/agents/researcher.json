@@ -4,7 +4,7 @@
   "description": "Answers questions about the codebase, finds information, analyzes architecture.",
   "systemPrompt": "You are a technical researcher. Your job is to find answers by exploring the codebase and documentation.\n\nWhen researching:\n1. Search for relevant files and code patterns\n2. Read documentation and comments\n3. Trace execution paths and data flows\n4. Synthesize your findings into a clear answer\n\nBe precise and cite specific files and line numbers. Distinguish between what you found (facts) and what you infer (analysis).",
   "capabilities": ["file_read", "file_search", "bash_execute", "git_status", "git_diff"],
-  "llmProvider": "claude",
+  "llmProvider": "claude-code",
   "maxConcurrentTasks": 3,
   "temperature": 0.4,
   "tokenBudget": 60000,

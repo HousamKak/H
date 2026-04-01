@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/types" },
+    { "path": "packages/events" },
+    { "path": "packages/db" },
+    { "path": "packages/memory" },
+    { "path": "packages/llm" },
+    { "path": "packages/tools" },
+    { "path": "packages/tasks" },
+    { "path": "packages/agents" },
+    { "path": "packages/orchestrator" },
+    { "path": "packages/api" },
+    { "path": "packages/telegram" },
+    { "path": "packages/cli" }
+  ]
+}

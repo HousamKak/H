@@ -1,0 +1,28 @@
+{
+  "name": "h-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "H — Personal AI Coding Orchestrator",
+  "author": "Housam",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @h/types build && pnpm --filter @h/events build && pnpm --filter @h/db build && pnpm --filter @h/llm build && pnpm --filter @h/memory build && pnpm --filter @h/tools build && pnpm --filter @h/tasks build && pnpm --filter @h/agents build && pnpm --filter @h/orchestrator build && pnpm --filter @h/api build && pnpm --filter @h/telegram build && pnpm --filter @h/cli build",
+    "dev": "pnpm -r --parallel dev",
+    "dev:api": "pnpm --filter @h/api dev",
+    "dev:telegram": "pnpm --filter @h/telegram dev",
+    "dev:cli": "pnpm --filter @h/cli dev",
+    "clean": "pnpm -r exec rm -rf dist",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint packages/*/src/**/*.ts"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

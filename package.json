@@ -12,6 +12,7 @@
     "dev:api": "pnpm --filter @h/api dev",
     "dev:telegram": "pnpm --filter @h/telegram dev",
     "dev:cli": "pnpm --filter @h/cli dev",
+    "dev:web": "pnpm --filter @h/web dev",
     "clean": "pnpm -r exec rm -rf dist",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint packages/*/src/**/*.ts"

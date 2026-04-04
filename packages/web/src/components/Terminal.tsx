@@ -8,6 +8,24 @@ interface Props {
   events: HEvent[];
 }
 
+// Events worth showing in the terminal — skip noisy message.received/sent
+const TERMINAL_EVENT_TYPES = new Set([
+  'agent.spawned', 'agent.started', 'agent.terminated', 'agent.error', 'agent.idle',
+  'task.created', 'task.completed', 'task.failed', 'task.blocked',
+  'session.started', 'session.paused', 'session.resumed', 'session.completed',
+  'graph.created', 'graph.completed', 'graph.failed',
+  'cost.threshold.warning',
+  'system.started', 'system.shutdown', 'system.error',
+]);
+
+/** Strip markdown bold/header syntax for terminal display */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/^##\s+/gm, '')      // ## headers
+    .replace(/\*\*([^*]+)\*\*/g, '$1')  // **bold**
+    .replace(/^\s{2}/gm, '  ');    // keep indentation
+}
+
 export function Terminal({ lines, onSend, events }: Props) {
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<string[]>([]);
@@ -15,12 +33,14 @@ export function Terminal({ lines, onSend, events }: Props) {
   const outputRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const filteredEvents = events.filter(e => TERMINAL_EVENT_TYPES.has(e.type));
+
   // Auto-scroll
   useEffect(() => {
     if (outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [lines, events]);
+  }, [lines, filteredEvents]);
 
   // Focus input on mount
   useEffect(() => {
@@ -66,12 +86,12 @@ export function Terminal({ lines, onSend, events }: Props) {
       <div className="terminal-output" ref={outputRef}>
         {lines.map((line) => (
           <div key={line.id} className={`terminal-line ${line.type}`}>
-            {line.text}
+            {line.type === 'response' ? stripMarkdown(line.text) : line.text}
           </div>
         ))}
 
-        {events.slice(-20).map((evt) => (
-          <div key={evt.id} className="terminal-line event">
+        {filteredEvents.slice(-15).map((evt, i) => (
+          <div key={`${evt.id}-${i}`} className="terminal-line event">
             [{new Date(evt.timestamp).toLocaleTimeString()}] {evt.type}
             {evt.agentId ? ` [${evt.agentId.substring(0, 8)}]` : ''}
           </div>

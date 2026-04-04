@@ -36,8 +36,8 @@ export function EventLog({ events }: Props) {
         {reversed.length === 0 ? (
           <div style={{ color: 'var(--text-dim)' }}>Waiting for events...</div>
         ) : (
-          reversed.map((evt) => (
-            <div key={evt.id} className="event-entry">
+          reversed.map((evt, i) => (
+            <div key={`${evt.id}-${i}`} className="event-entry">
               <span className="event-time">
                 {new Date(evt.timestamp).toLocaleTimeString()}
               </span>

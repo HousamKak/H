@@ -5,10 +5,19 @@ interface Props {
   sessionId?: string;
 }
 
+interface Permission {
+  id: string;
+  fromSessionId: string;
+  toSessionId: string;
+  status: string;
+  createdAt: string;
+}
+
 export function A2AView({ sessionId }: Props) {
   const [cards, setCards] = useState<AgentCard[]>([]);
   const [messages, setMessages] = useState<A2AMessage[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>();
+  const [pendingPerms, setPendingPerms] = useState<Permission[]>([]);
 
   const refreshCards = useCallback(() => {
     if (!sessionId) return;
@@ -19,6 +28,14 @@ export function A2AView({ sessionId }: Props) {
     if (!selectedAgentId) return;
     api.a2a.messages(selectedAgentId).then(setMessages).catch(() => {});
   }, [selectedAgentId]);
+
+  const refreshPerms = useCallback(() => {
+    if (!sessionId) return;
+    api.a2a.permissions.pending(sessionId).then(setPendingPerms).catch(() => {});
+  }, [sessionId]);
+
+  const handleGrant = async (id: string) => { await api.a2a.permissions.grant(id); refreshPerms(); };
+  const handleDeny = async (id: string) => { await api.a2a.permissions.deny(id); refreshPerms(); };
 
   useEffect(() => {
     refreshCards();
@@ -32,6 +49,12 @@ export function A2AView({ sessionId }: Props) {
     return () => clearInterval(t);
   }, [refreshMessages]);
 
+  useEffect(() => {
+    refreshPerms();
+    const t = setInterval(refreshPerms, 3000);
+    return () => clearInterval(t);
+  }, [refreshPerms]);
+
   if (!sessionId) {
     return (
       <div style={{ padding: 24, color: 'var(--text-dim)', fontFamily: 'VT323, monospace' }}>
@@ -41,7 +64,26 @@ export function A2AView({ sessionId }: Props) {
   }
 
   return (
-    <div style={{ padding: 16, display: 'flex', gap: 16, height: '100%' }}>
+    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Pending cross-session permission requests */}
+      {pendingPerms.length > 0 && (
+        <div style={{ padding: 12, marginBottom: 12, background: '#2a1a0a', border: '1px solid #aa8800' }}>
+          <div style={{ fontFamily: 'Press Start 2P, monospace', fontSize: 10, color: '#ffaa00', marginBottom: 8 }}>
+            CROSS-SESSION ACCESS REQUESTS ({pendingPerms.length})
+          </div>
+          {pendingPerms.map(p => (
+            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+              <span style={{ color: '#aa8800' }}>From session</span>
+              <span style={{ color: '#ffaa00' }}>{p.fromSessionId.slice(0, 8)}</span>
+              <span style={{ color: '#666', flex: 1 }}>wants to message your agents</span>
+              <button onClick={() => handleGrant(p.id)} style={{ background: '#1a3a1a', color: '#33ff33', border: '1px solid #33ff33', padding: '3px 10px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>GRANT</button>
+              <button onClick={() => handleDeny(p.id)} style={{ background: 'none', color: '#aa3333', border: '1px solid #aa3333', padding: '3px 10px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>DENY</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
       {/* Agent Cards Panel */}
       <div style={{ width: 280, flexShrink: 0, borderRight: '1px solid var(--border)', paddingRight: 16 }}>
         <h3 style={{ fontFamily: 'Press Start 2P, monospace', fontSize: 11, color: 'var(--green)', marginBottom: 12 }}>
@@ -111,6 +153,7 @@ export function A2AView({ sessionId }: Props) {
             ))}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

@@ -465,6 +465,39 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     }
   });
 
+  // ---- A2A Permissions ----
+  app.get('/api/a2a/permissions', (req, res) => {
+    const sessionId = req.query.sessionId as string | undefined;
+    res.json(orchestrator.a2a.getAllPermissions(sessionId));
+  });
+
+  app.get('/api/a2a/permissions/pending', (req, res) => {
+    const sessionId = req.query.sessionId as string;
+    if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
+    res.json(orchestrator.a2a.getPendingRequests(sessionId));
+  });
+
+  app.post('/api/a2a/permissions/request', (req, res) => {
+    const { fromSessionId, toSessionId, requestedByAgentId } = req.body;
+    if (!fromSessionId || !toSessionId) return res.status(400).json({ error: 'fromSessionId and toSessionId required' });
+    res.json(orchestrator.a2a.requestPermission(fromSessionId, toSessionId, requestedByAgentId));
+  });
+
+  app.post('/api/a2a/permissions/:id/grant', (req, res) => {
+    orchestrator.a2a.grantPermission(req.params.id);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/a2a/permissions/:id/deny', (req, res) => {
+    orchestrator.a2a.denyPermission(req.params.id);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/a2a/permissions/:id/revoke', (req, res) => {
+    orchestrator.a2a.revokePermission(req.params.id);
+    res.json({ ok: true });
+  });
+
   // ---- Workspace ----
   const workspaceRepo = new WorkspaceRepository();
 

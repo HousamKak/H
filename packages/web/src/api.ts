@@ -282,6 +282,19 @@ export const api = {
       fetchJSON<A2AMessage>('/a2a/send', { method: 'POST', body: JSON.stringify(data) }),
     acknowledge: (messageId: string) =>
       fetchJSON<{ ok: boolean }>(`/a2a/messages/${messageId}/acknowledge`, { method: 'POST', body: JSON.stringify({ status: 'read' }) }),
+    permissions: {
+      list: (sessionId?: string) =>
+        fetchJSON<Array<{ id: string; fromSessionId: string; toSessionId: string; status: string; createdAt: string }>>(
+          `/a2a/permissions${sessionId ? `?sessionId=${sessionId}` : ''}`,
+        ),
+      pending: (sessionId: string) =>
+        fetchJSON<Array<{ id: string; fromSessionId: string; toSessionId: string; status: string; createdAt: string }>>(
+          `/a2a/permissions/pending?sessionId=${sessionId}`,
+        ),
+      grant: (id: string) => fetchJSON<{ ok: boolean }>(`/a2a/permissions/${id}/grant`, { method: 'POST' }),
+      deny: (id: string) => fetchJSON<{ ok: boolean }>(`/a2a/permissions/${id}/deny`, { method: 'POST' }),
+      revoke: (id: string) => fetchJSON<{ ok: boolean }>(`/a2a/permissions/${id}/revoke`, { method: 'POST' }),
+    },
   },
   workspace: {
     get: () => fetchJSON<Workspace>('/workspace'),

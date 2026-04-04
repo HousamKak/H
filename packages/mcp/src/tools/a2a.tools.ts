@@ -1,11 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { McpToolContext } from '../types.js';
-import { A2ARepository } from '@h/db';
+import { A2ARepository, A2APermissionsRepository } from '@h/db';
 import { generateId } from '@h/types';
 
 export function registerA2ATools(server: McpServer, ctx: McpToolContext): void {
   const a2aRepo = new A2ARepository();
+  const permsRepo = new A2APermissionsRepository();
 
   server.tool(
     'h_a2a_discover',
@@ -141,6 +142,25 @@ export function registerA2ATools(server: McpServer, ctx: McpToolContext): void {
       });
 
       return { content: [{ type: 'text' as const, text: `Reply sent: ${reply.id} → ${original.fromAgentId.slice(0, 8)}` }] };
+    },
+  );
+
+  server.tool(
+    'h_a2a_request_cross_session',
+    'Request permission to send A2A messages to agents in another session (cross-session access must be explicitly granted)',
+    {
+      toSessionId: z.string().describe('Target session ID'),
+      reason: z.string().optional().describe('Why you need access (shown to human approver)'),
+    },
+    async (args) => {
+      if (args.toSessionId === ctx.sessionId) {
+        return { content: [{ type: 'text' as const, text: 'Same session — cross-session request not needed.' }] };
+      }
+      if (permsRepo.canSend(ctx.sessionId, args.toSessionId)) {
+        return { content: [{ type: 'text' as const, text: `Access already granted to session ${args.toSessionId.slice(0, 8)}.` }] };
+      }
+      const perm = permsRepo.request(ctx.sessionId, args.toSessionId, ctx.agentId);
+      return { content: [{ type: 'text' as const, text: `Cross-session permission requested (status: ${perm.status}). Wait for human approval. Request ID: ${perm.id}` }] };
     },
   );
 

@@ -1,9 +1,8 @@
 import type {
   A2AMessage, SendA2AMessageInput, A2AInboxFilter, A2AMessageStatus,
-  DiscoverAgentsFilter,
 } from '@h/types';
 import type { EventBus } from '@h/events';
-import { A2ARepository } from '@h/db';
+import { A2ARepository, A2APermissionsRepository } from '@h/db';
 import { AgentCardRegistry } from './agent-card-registry.js';
 
 export type A2AMessageHandler = (message: A2AMessage) => void | Promise<void>;
@@ -17,11 +16,13 @@ export type A2AMessageHandler = (message: A2AMessage) => void | Promise<void>;
  */
 export class A2ARouter {
   private repo: A2ARepository;
+  private permsRepo: A2APermissionsRepository;
   private cardRegistry: AgentCardRegistry;
   private handlers: Map<string, A2AMessageHandler> = new Map();
 
   constructor(private eventBus: EventBus, cardRegistry: AgentCardRegistry) {
     this.repo = new A2ARepository();
+    this.permsRepo = new A2APermissionsRepository();
     this.cardRegistry = cardRegistry;
   }
 
@@ -53,6 +54,20 @@ export class A2ARouter {
       targetAgentId = sorted[0]?.agentId;
       if (!targetAgentId) {
         throw new Error(`No agent found with capability "${input.capability}"`);
+      }
+    }
+
+    // Cross-session permission check
+    if (targetAgentId) {
+      const targetCard = this.cardRegistry.findCard(targetAgentId);
+      if (targetCard && targetCard.sessionId !== sessionId) {
+        if (!this.permsRepo.canSend(sessionId, targetCard.sessionId)) {
+          // Auto-request if not already requested
+          this.permsRepo.request(sessionId, targetCard.sessionId, fromAgentId);
+          throw new Error(
+            `Cross-session A2A denied. Permission requested from session ${targetCard.sessionId.slice(0, 8)} — wait for approval.`,
+          );
+        }
       }
     }
 
@@ -172,5 +187,27 @@ export class A2ARouter {
    */
   countPending(agentId: string): number {
     return this.repo.countPending(agentId);
+  }
+
+  // ---- Cross-session permissions ----
+
+  requestPermission(fromSessionId: string, toSessionId: string, requestedByAgentId?: string) {
+    return this.permsRepo.request(fromSessionId, toSessionId, requestedByAgentId);
+  }
+
+  grantPermission(id: string): void { this.permsRepo.grant(id); }
+  denyPermission(id: string): void { this.permsRepo.deny(id); }
+  revokePermission(id: string): void { this.permsRepo.revoke(id); }
+
+  getPendingRequests(toSessionId: string) {
+    return this.permsRepo.findPending(toSessionId);
+  }
+
+  getAllPermissions(sessionId?: string) {
+    return this.permsRepo.findAll({ sessionId });
+  }
+
+  canSend(fromSessionId: string, toSessionId: string): boolean {
+    return this.permsRepo.canSend(fromSessionId, toSessionId);
   }
 }

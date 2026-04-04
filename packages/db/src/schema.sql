@@ -430,6 +430,25 @@ CREATE TABLE IF NOT EXISTS a2a_messages (
 );
 
 -- ============================================================================
+-- Cross-session A2A permissions
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS session_a2a_permissions (
+  id TEXT PRIMARY KEY,
+  from_session_id TEXT NOT NULL,
+  to_session_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending','granted','denied','revoked')),
+  requested_by_agent_id TEXT,
+  granted_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(from_session_id, to_session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_a2a_perms_from ON session_a2a_permissions(from_session_id);
+CREATE INDEX IF NOT EXISTS idx_a2a_perms_to ON session_a2a_permissions(to_session_id);
+CREATE INDEX IF NOT EXISTS idx_a2a_perms_status ON session_a2a_permissions(status);
+
+-- ============================================================================
 -- Workspaces (per-user tiled layout of applets)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS workspaces (

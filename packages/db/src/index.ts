@@ -16,3 +16,4 @@ export { SessionRepository } from './repositories/session.repository.js';
 export { TerminalRepository } from './repositories/terminal.repository.js';
 export { A2ARepository } from './repositories/a2a.repository.js';
 export { WorkspaceRepository } from './repositories/workspace.repository.js';
+export { A2APermissionsRepository, type A2APermission, type A2APermissionStatus } from './repositories/a2a-permissions.repository.js';

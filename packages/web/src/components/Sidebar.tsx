@@ -14,6 +14,8 @@ const NAV_ITEMS = [
   { id: 'tasks', icon: '#', label: 'TASKS' },
   { id: 'graph', icon: '%', label: 'TASK GRAPH' },
   { id: 'blackboard', icon: '&', label: 'BLACKBOARD' },
+  { id: 'a2a', icon: '*', label: 'A2A MESSAGES' },
+  { id: 'terminals', icon: '+', label: 'TERMINALS' },
   { id: 'costs', icon: '!', label: 'COSTS' },
   { id: 'traces', icon: '^', label: 'TRACES' },
   { id: 'events', icon: '~', label: 'EVENT LOG' },

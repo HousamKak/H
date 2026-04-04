@@ -74,6 +74,32 @@ export interface ProjectLink {
   description?: string;
 }
 
+export interface AgentCard {
+  agentId: string;
+  name: string;
+  description: string;
+  projectId: string;
+  sessionId: string;
+  capabilities: string[];
+  status: string;
+  updatedAt: string;
+}
+
+export interface A2AMessage {
+  id: string;
+  sessionId: string;
+  fromAgentId: string;
+  toAgentId?: string;
+  fromProjectId: string;
+  toProjectId?: string;
+  type: string;
+  subject?: string;
+  body: string;
+  priority: string;
+  status: string;
+  createdAt: string;
+}
+
 export interface TerminalInfo {
   id: string;
   sessionId: string;
@@ -218,6 +244,16 @@ export const api = {
     list: (projectId: string) => fetchJSON<Array<{ project: Project; link: ProjectLink }>>(`/project-links/${projectId}`),
     create: (data: { sourceProjectId: string; targetProjectId: string; linkType: string }) =>
       fetchJSON<ProjectLink>('/project-links', { method: 'POST', body: JSON.stringify(data) }),
+  },
+  a2a: {
+    agents: (sessionId: string, projectId?: string) =>
+      fetchJSON<AgentCard[]>(`/a2a/agents?sessionId=${sessionId}${projectId ? `&projectId=${projectId}` : ''}`),
+    messages: (agentId: string, limit = 50) =>
+      fetchJSON<A2AMessage[]>(`/a2a/messages?agentId=${agentId}&limit=${limit}`),
+    send: (data: { sessionId: string; fromAgentId: string; fromProjectId: string; toAgentId?: string; type: string; body: string }) =>
+      fetchJSON<A2AMessage>('/a2a/send', { method: 'POST', body: JSON.stringify(data) }),
+    acknowledge: (messageId: string) =>
+      fetchJSON<{ ok: boolean }>(`/a2a/messages/${messageId}/acknowledge`, { method: 'POST', body: JSON.stringify({ status: 'read' }) }),
   },
   terminals: {
     list: (sessionId: string, projectId?: string) =>

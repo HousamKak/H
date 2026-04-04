@@ -13,6 +13,8 @@ import { TaskGraphView } from './components/TaskGraphView.js';
 import { BlackboardView } from './components/BlackboardView.js';
 import { CostDashboard } from './components/CostDashboard.js';
 import { TraceView } from './components/TraceView.js';
+import { A2AView } from './components/A2AView.js';
+import { TerminalsView } from './components/TerminalsView.js';
 
 export function App() {
   const [activeView, setActiveView] = useState('dashboard');
@@ -80,6 +82,10 @@ export function App() {
             <TraceView spans={spans} title={selectedAgentId ? `Traces: ${selectedAgentId.slice(0, 8)}` : undefined} />
           </div>
         );
+      case 'a2a':
+        return <A2AView sessionId={session?.id} />;
+      case 'terminals':
+        return <TerminalsView sessionId={session?.id} projectId={currentProjectId} />;
       case 'events':
         return <EventLog events={events} />;
       default:

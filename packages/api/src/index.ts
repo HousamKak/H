@@ -365,6 +365,60 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     }
   });
 
+  // ---- A2A: Agent Cards ----
+  app.get('/api/a2a/agents', (req, res) => {
+    try {
+      const sessionId = req.query.sessionId as string;
+      if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+      const cards = orchestrator.agentCards.discover({
+        sessionId,
+        projectId: req.query.projectId as string | undefined,
+        capability: req.query.capability as string | undefined,
+      });
+      res.json(cards);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ---- A2A: Messages ----
+  app.get('/api/a2a/messages', (req, res) => {
+    try {
+      const agentId = req.query.agentId as string;
+      if (!agentId) return res.status(400).json({ error: 'agentId is required' });
+      const messages = orchestrator.a2a.getInbox(agentId, {
+        unreadOnly: req.query.unreadOnly === 'true',
+        limit: parseInt(req.query.limit as string) || 50,
+      });
+      res.json(messages);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/a2a/send', async (req, res) => {
+    try {
+      const { sessionId, fromAgentId, fromProjectId, ...input } = req.body;
+      const msg = await orchestrator.a2a.send(sessionId, fromAgentId, fromProjectId, input);
+      res.status(201).json(msg);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/a2a/messages/:id/acknowledge', async (req, res) => {
+    try {
+      await orchestrator.a2a.acknowledge(req.params.id, req.body.status ?? 'read');
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ---- Terminals ----
   app.get('/api/terminals', async (req, res) => {
     try {

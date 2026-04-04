@@ -11,6 +11,8 @@ import { TaskService, TaskQueue, TaskGraphService } from '@h/tasks';
 import { createToolExecutor } from '@h/tools';
 import { AgentService } from '@h/agents';
 import { SessionService } from '@h/session';
+import { AgentCardRegistry, A2ARouter } from '@h/a2a';
+import { TerminalManager } from '@h/terminal';
 import { StatusReporter } from './status-reporter.js';
 import { CommandParser } from './command-parser.js';
 import { resolve } from 'node:path';
@@ -28,6 +30,9 @@ export class Orchestrator {
   private taskGraphService: TaskGraphService;
   private agentService: AgentService;
   private sessionService: SessionService;
+  private agentCardRegistry: AgentCardRegistry;
+  private a2aRouter: A2ARouter;
+  private terminalManager: TerminalManager;
   private statusReporter: StatusReporter;
   private commandParser: CommandParser;
   private currentSessionId?: string;
@@ -49,6 +54,9 @@ export class Orchestrator {
     this.taskService = new TaskService(this.eventBus);
     this.taskQueue = new TaskQueue(this.taskService);
     this.sessionService = new SessionService(this.eventBus);
+    this.agentCardRegistry = new AgentCardRegistry(this.eventBus);
+    this.a2aRouter = new A2ARouter(this.eventBus, this.agentCardRegistry);
+    this.terminalManager = new TerminalManager(this.eventBus);
 
     const graphRepo = new TaskGraphRepository();
     this.taskGraphService = new TaskGraphService(this.taskService, this.eventBus, graphRepo);
@@ -63,6 +71,7 @@ export class Orchestrator {
       blackboard: this.blackboardService,
       taskService: this.taskService,
       schemasDir,
+      terminalManager: this.terminalManager,
     });
 
     this.statusReporter = new StatusReporter(this.projectRepo, this.agentService, this.taskService, this.taskQueue, this.sessionService);
@@ -81,6 +90,38 @@ export class Orchestrator {
     // Auto-advance task graphs when tasks complete
     this.eventBus.on('task.completed', (event) => {
       this.onTaskCompleted(event.taskId);
+    });
+
+    // Auto-register agent cards for A2A discovery
+    this.eventBus.on('agent.spawned', (event) => {
+      const agent = (event.payload as any).agent;
+      if (agent && this.currentSessionId) {
+        this.agentCardRegistry.register({
+          agentId: agent.id,
+          name: `${agent.definitionRole}-${agent.id.slice(0, 8)}`,
+          description: `${agent.definitionRole} agent`,
+          projectId: agent.projectId,
+          sessionId: this.currentSessionId,
+          capabilities: [agent.definitionRole],
+        });
+      }
+    });
+
+    // Auto-unregister on termination
+    this.eventBus.on('agent.terminated', (event) => {
+      const agentId = (event.payload as any).agentId ?? event.agentId;
+      if (agentId) {
+        this.agentCardRegistry.unregister(agentId);
+        this.a2aRouter.unregisterHandler(agentId);
+      }
+    });
+
+    // Update card status when agent starts/stops working
+    this.eventBus.on('agent.started', (event) => {
+      if (event.agentId) this.agentCardRegistry.updateStatus(event.agentId, 'busy');
+    });
+    this.eventBus.on('agent.idle', (event) => {
+      if (event.agentId) this.agentCardRegistry.updateStatus(event.agentId, 'available');
     });
   }
 
@@ -492,6 +533,9 @@ export class Orchestrator {
   get queue(): TaskQueue { return this.taskQueue; }
   get agents(): AgentService { return this.agentService; }
   get sessions(): SessionService { return this.sessionService; }
+  get a2a(): A2ARouter { return this.a2aRouter; }
+  get agentCards(): AgentCardRegistry { return this.agentCardRegistry; }
+  get terminals(): TerminalManager { return this.terminalManager; }
   get status(): StatusReporter { return this.statusReporter; }
   get costs(): CostRepository { return this.costRepo; }
 }

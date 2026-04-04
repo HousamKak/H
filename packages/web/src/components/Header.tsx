@@ -1,11 +1,13 @@
 import { useHealth } from '../hooks.js';
+import type { CostSummary } from '../api.js';
 
 interface Props {
   agentCount: number;
   workingCount: number;
+  costSummary?: CostSummary | null;
 }
 
-export function Header({ agentCount, workingCount }: Props) {
+export function Header({ agentCount, workingCount, costSummary }: Props) {
   const online = useHealth();
 
   return (
@@ -24,6 +26,12 @@ export function Header({ agentCount, workingCount }: Props) {
           <div className="indicator">
             <span className="dot dot-green" style={{ animation: 'blink 1s step-end infinite' }} />
             <span>{workingCount} WORKING</span>
+          </div>
+        )}
+        {costSummary && costSummary.daily > 0 && (
+          <div className="indicator">
+            <span className="dot dot-amber" />
+            <span>${costSummary.daily.toFixed(2)} TODAY</span>
           </div>
         )}
       </div>

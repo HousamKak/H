@@ -15,3 +15,4 @@ export { TaskGraphRepository } from './repositories/task-graph.repository.js';
 export { SessionRepository } from './repositories/session.repository.js';
 export { TerminalRepository } from './repositories/terminal.repository.js';
 export { A2ARepository } from './repositories/a2a.repository.js';
+export { WorkspaceRepository } from './repositories/workspace.repository.js';

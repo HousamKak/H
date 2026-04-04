@@ -429,6 +429,16 @@ CREATE TABLE IF NOT EXISTS a2a_messages (
   FOREIGN KEY (in_reply_to) REFERENCES a2a_messages(id)
 );
 
+-- ============================================================================
+-- Workspaces (per-user tiled layout of applets)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS workspaces (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  layout_json TEXT NOT NULL DEFAULT '{}',
+  applets_json TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- New table indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_session_projects_session ON session_projects(session_id);

@@ -98,6 +98,32 @@ export interface A2AMessage {
   createdAt: string;
 }
 
+export type MosaicNode =
+  | string
+  | { direction: 'row' | 'column'; first: MosaicNode; second: MosaicNode; splitPercentage?: number };
+
+export interface Applet {
+  id: string;
+  type: 'terminal';
+  title?: string;
+  config: {
+    sessionId: string;
+    projectId: string;
+    kind: 'claude_code' | 'shell' | 'dev_server' | 'attach';
+    terminalId?: string;
+    command?: string;
+    args?: string[];
+    cwd?: string;
+  };
+}
+
+export interface Workspace {
+  id: string;
+  layout: MosaicNode | null;
+  applets: Applet[];
+  updatedAt: string;
+}
+
 export interface TerminalInfo {
   id: string;
   sessionId: string;
@@ -256,6 +282,12 @@ export const api = {
       fetchJSON<A2AMessage>('/a2a/send', { method: 'POST', body: JSON.stringify(data) }),
     acknowledge: (messageId: string) =>
       fetchJSON<{ ok: boolean }>(`/a2a/messages/${messageId}/acknowledge`, { method: 'POST', body: JSON.stringify({ status: 'read' }) }),
+  },
+  workspace: {
+    get: () => fetchJSON<Workspace>('/workspace'),
+    update: (layout: MosaicNode | null, applets: Applet[]) =>
+      fetchJSON<Workspace>('/workspace', { method: 'PUT', body: JSON.stringify({ layout, applets }) }),
+    reset: () => fetchJSON<{ ok: boolean }>('/workspace/reset', { method: 'POST' }),
   },
   terminals: {
     list: (sessionId: string, projectId?: string) =>

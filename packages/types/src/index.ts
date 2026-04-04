@@ -9,3 +9,4 @@ export * from './tools.js';
 export * from './sessions.js';
 export * from './terminals.js';
 export * from './a2a.js';
+export * from './workspace.js';

@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { Orchestrator } from '@h/orchestrator';
 import type { HEvent } from '@h/types';
 import { resolve } from 'node:path';
-import { TaskGraphRepository, TraceRepository, EpisodeRepository, CheckpointRepository } from '@h/db';
+import { TaskGraphRepository, TraceRepository, EpisodeRepository, CheckpointRepository, WorkspaceRepository } from '@h/db';
 
 export async function startApiServer(orchestrator: Orchestrator, port?: number): Promise<void> {
   const app = express();
@@ -463,6 +463,33 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
+  });
+
+  // ---- Workspace ----
+  const workspaceRepo = new WorkspaceRepository();
+
+  app.get('/api/workspace', (_req, res) => {
+    try {
+      res.json(workspaceRepo.get());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.put('/api/workspace', (req, res) => {
+    try {
+      const { layout, applets } = req.body;
+      res.json(workspaceRepo.update('default', { layout, applets: applets ?? [] }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/workspace/reset', (_req, res) => {
+    workspaceRepo.reset();
+    res.json({ ok: true });
   });
 
   // ---- Terminals ----

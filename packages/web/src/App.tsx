@@ -19,7 +19,7 @@ import { SessionView } from './components/SessionView.js';
 
 export function App() {
   const [activeView, setActiveView] = useState('dashboard');
-  const { session, sessionProjects, refresh: refreshSession } = useSession();
+  const { session, activeSessions, sessionProjects, refresh: refreshSession } = useSession();
   const { projects } = useProjects();
 
   // Current project: first session project, or first project overall
@@ -102,7 +102,8 @@ export function App() {
       <div className="app-layout">
         <Header agentCount={agents.length} workingCount={workingCount} costSummary={costSummary} />
         <SessionBar
-          session={session}
+          focusedSession={session}
+          activeSessions={activeSessions}
           sessionProjects={sessionProjects}
           currentProjectId={currentProjectId}
           onProjectSelect={setSelectedProjectId}

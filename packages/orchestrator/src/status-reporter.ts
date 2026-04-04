@@ -87,7 +87,7 @@ export class StatusReporter {
 
     const lines = ['## Sessions\n'];
     for (const s of sessions) {
-      const status = s.status === 'active' ? '[active]' : s.status === 'paused' ? '[paused]' : `[${s.status}]`;
+      const status = s.status === 'active' ? '[active]' : '[ended]';
       lines.push(`${status} ${s.name ?? s.id.slice(0, 8)} -- started ${s.startedAt}`);
     }
     return lines.join('\n');

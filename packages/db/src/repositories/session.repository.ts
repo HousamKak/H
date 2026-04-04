@@ -1,22 +1,28 @@
 import { getDatabase } from '../database.js';
-import type { Session, CreateSessionInput, SessionStatus, SessionConfig, SessionSnapshot, ProjectLink, CreateProjectLinkInput } from '@h/types';
+import type { Session, CreateSessionInput, SessionStatus, SessionConfig, ProjectLink, CreateProjectLinkInput } from '@h/types';
 import { generateId } from '@h/types';
 
 const DEFAULT_CONFIG: SessionConfig = { autoAssign: true, notifyOnCompletion: true };
-const EMPTY_SNAPSHOT: SessionSnapshot = { activeAgentIds: [], pendingTaskIds: [], runningTerminalIds: [], blackboardSummary: '', lastActivity: '' };
+
+/** Map DB status (legacy values) to app status ('active' | 'ended') */
+function mapStatus(dbStatus: string): SessionStatus {
+  return dbStatus === 'active' ? 'active' : 'ended';
+}
+
+/** Map app status to DB status (DB CHECK constraint still has old values) */
+function toDbStatus(appStatus: SessionStatus): string {
+  return appStatus === 'active' ? 'active' : 'completed';
+}
 
 function toSession(row: any): Session {
   return {
     id: row.id,
     name: row.name ?? undefined,
-    status: row.status,
+    status: mapStatus(row.status),
     startedAt: row.started_at,
-    pausedAt: row.paused_at ?? undefined,
-    resumedAt: row.resumed_at ?? undefined,
-    completedAt: row.completed_at ?? undefined,
+    endedAt: row.completed_at ?? row.paused_at ?? undefined,
     focusDescription: row.focus_description ?? undefined,
     config: JSON.parse(row.config_json || '{}'),
-    snapshot: JSON.parse(row.snapshot_json || '{}'),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -31,7 +37,7 @@ function toLink(row: any): ProjectLink {
     description: row.description ?? undefined,
     config: JSON.parse(row.config_json || '{}'),
     createdAt: row.created_at,
-    updatedAt: row.created_at, // project_links has no updated_at
+    updatedAt: row.created_at,
   };
 }
 
@@ -42,9 +48,9 @@ export class SessionRepository {
     const id = generateId();
     const config = { ...DEFAULT_CONFIG, ...input.config };
     this.db.prepare(`
-      INSERT INTO sessions (id, name, status, focus_description, config_json, snapshot_json)
-      VALUES (?, ?, 'active', ?, ?, ?)
-    `).run(id, input.name ?? null, input.focusDescription ?? null, JSON.stringify(config), JSON.stringify(EMPTY_SNAPSHOT));
+      INSERT INTO sessions (id, name, status, focus_description, config_json)
+      VALUES (?, ?, 'active', ?, ?)
+    `).run(id, input.name ?? null, input.focusDescription ?? null, JSON.stringify(config));
     return this.findById(id)!;
   }
 
@@ -53,35 +59,25 @@ export class SessionRepository {
     return row ? toSession(row) : undefined;
   }
 
-  findActive(): Session | undefined {
-    const row = this.db.prepare("SELECT * FROM sessions WHERE status = 'active' ORDER BY started_at DESC LIMIT 1").get() as any;
-    return row ? toSession(row) : undefined;
+  findAllActive(): Session[] {
+    const rows = this.db.prepare("SELECT * FROM sessions WHERE status = 'active' ORDER BY started_at DESC").all() as any[];
+    return rows.map(toSession);
   }
 
   findAll(filter?: { status?: SessionStatus }): Session[] {
     let sql = 'SELECT * FROM sessions WHERE 1=1';
     const params: any[] = [];
-    if (filter?.status) { sql += ' AND status = ?'; params.push(filter.status); }
+    if (filter?.status === 'active') { sql += " AND status = 'active'"; }
+    else if (filter?.status === 'ended') { sql += " AND status != 'active'"; }
     sql += ' ORDER BY started_at DESC';
     return (this.db.prepare(sql).all(...params) as any[]).map(toSession);
   }
 
-  updateStatus(id: string, status: SessionStatus, snapshot?: SessionSnapshot): void {
+  endSession(id: string): void {
     const now = new Date().toISOString();
-    const sets = ['status = ?', 'updated_at = ?'];
-    const params: any[] = [status, now];
-
-    if (status === 'paused') { sets.push('paused_at = ?'); params.push(now); }
-    if (status === 'completed' || status === 'abandoned') { sets.push('completed_at = ?'); params.push(now); }
-    if (snapshot) { sets.push('snapshot_json = ?'); params.push(JSON.stringify(snapshot)); }
-
-    params.push(id);
-    this.db.prepare(`UPDATE sessions SET ${sets.join(', ')} WHERE id = ?`).run(...params);
-  }
-
-  updateResumed(id: string): void {
-    const now = new Date().toISOString();
-    this.db.prepare(`UPDATE sessions SET status = 'active', resumed_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id);
+    this.db.prepare(
+      "UPDATE sessions SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?"
+    ).run(toDbStatus('ended'), now, now, id);
   }
 
   update(id: string, changes: Partial<Pick<Session, 'name' | 'focusDescription' | 'config'>>): void {

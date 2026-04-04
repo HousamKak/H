@@ -80,13 +80,12 @@ export class CommandParser {
     switch (action) {
       case 'start':
         return { action: 'start', name: parts.slice(1).join(' ') || undefined };
-      case 'pause':
-        return { action: 'pause' };
-      case 'resume':
-        return { action: 'resume', sessionId: parts[1] };
-      case 'complete':
       case 'end':
-        return { action: 'complete' };
+      case 'complete':
+        return { action: 'end', sessionId: parts[1] };
+      case 'focus':
+      case 'switch':
+        return { action: 'focus', sessionId: parts[1] };
       default:
         return { action: 'info' };
     }

@@ -1,6 +1,6 @@
 import type { Timestamped } from './common.js';
 
-export type SessionStatus = 'active' | 'paused' | 'completed' | 'abandoned';
+export type SessionStatus = 'active' | 'ended';
 
 export interface SessionConfig {
   costLimit?: number;
@@ -8,6 +8,7 @@ export interface SessionConfig {
   notifyOnCompletion: boolean;
 }
 
+// Deprecated — kept for migration compatibility, no longer populated
 export interface SessionSnapshot {
   activeAgentIds: string[];
   pendingTaskIds: string[];
@@ -21,12 +22,9 @@ export interface Session extends Timestamped {
   name?: string;
   status: SessionStatus;
   startedAt: string;
-  pausedAt?: string;
-  resumedAt?: string;
-  completedAt?: string;
+  endedAt?: string;
   focusDescription?: string;
   config: SessionConfig;
-  snapshot: SessionSnapshot;
 }
 
 export interface CreateSessionInput {

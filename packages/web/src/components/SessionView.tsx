@@ -23,8 +23,12 @@ export function SessionView({ currentSession, onRefresh }: Props) {
   const refresh = useCallback(() => {
     api.sessions.list().then(setSessions).catch(() => {});
     api.projects.list().then(setProjects).catch(() => {});
-    api.sessions.projects().then(setSessionProjects).catch(() => setSessionProjects([]));
-  }, []);
+    if (currentSession) {
+      api.sessions.projects(currentSession.id).then(setSessionProjects).catch(() => setSessionProjects([]));
+    } else {
+      setSessionProjects([]);
+    }
+  }, [currentSession?.id]);
 
   useEffect(() => {
     refresh();
@@ -47,8 +51,8 @@ export function SessionView({ currentSession, onRefresh }: Props) {
   };
 
   const handleAddProject = async () => {
-    if (!selectedProjectId) return;
-    await api.sessions.addProject(selectedProjectId);
+    if (!selectedProjectId || !currentSession) return;
+    await api.sessions.addProject(currentSession.id, selectedProjectId);
     setSelectedProjectId('');
     setShowAddProject(false);
     refresh();
@@ -56,7 +60,8 @@ export function SessionView({ currentSession, onRefresh }: Props) {
   };
 
   const handleRemoveProject = async (projectId: string) => {
-    await api.sessions.removeProject(projectId);
+    if (!currentSession) return;
+    await api.sessions.removeProject(currentSession.id, projectId);
     refresh();
     onRefresh();
   };
@@ -74,14 +79,14 @@ export function SessionView({ currentSession, onRefresh }: Props) {
     onRefresh();
   };
 
-  const handleResume = async (sessionId: string) => {
-    await api.sessions.resume(sessionId);
+  const handleFocus = async (sessionId: string) => {
+    await api.sessions.focus(sessionId);
     refresh();
     onRefresh();
   };
 
-  const pausedSessions = sessions.filter(s => s.status === 'paused');
-  const completedSessions = sessions.filter(s => s.status === 'completed' || s.status === 'abandoned');
+  const otherActive = sessions.filter(s => s.status === 'active' && s.id !== currentSession?.id);
+  const endedSessions = sessions.filter(s => s.status === 'ended');
   const availableProjects = projects.filter(p => !sessionProjects.some(sp => sp.id === p.id));
 
   const inputStyle: React.CSSProperties = {
@@ -207,25 +212,25 @@ export function SessionView({ currentSession, onRefresh }: Props) {
         )}
       </div>
 
-      {/* Paused Sessions */}
-      {pausedSessions.length > 0 && (
+      {/* Other Active Sessions */}
+      {otherActive.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <h3 style={{ fontFamily: 'Press Start 2P, monospace', fontSize: 11, color: '#aa8800', marginBottom: 12 }}>
-            PAUSED ({pausedSessions.length})
+          <h3 style={{ fontFamily: 'Press Start 2P, monospace', fontSize: 11, color: '#33ccff', marginBottom: 12 }}>
+            OTHER ACTIVE SESSIONS ({otherActive.length})
           </h3>
           <div style={{ display: 'grid', gap: 8 }}>
-            {pausedSessions.map(s => (
-              <div key={s.id} style={{ border: '1px solid #aa8800', padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {otherActive.map(s => (
+              <div key={s.id} style={{ border: '1px solid #1a4a6a', padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#aa8800' }}>
+                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#33ccff' }}>
                     {s.name ?? s.id.slice(0, 12)}
                   </div>
                   <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>
-                    Paused: {s.pausedAt ? new Date(s.pausedAt).toLocaleString() : 'unknown'}
+                    Started: {new Date(s.startedAt).toLocaleString()}
                   </div>
                 </div>
-                <button onClick={() => handleResume(s.id)} style={{ background: '#332200', color: '#aa8800', border: '1px solid #aa8800', padding: '6px 16px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
-                  RESUME
+                <button onClick={() => handleFocus(s.id)} style={{ background: '#0d1f2f', color: '#33ccff', border: '1px solid #33ccff', padding: '6px 16px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+                  FOCUS
                 </button>
               </div>
             ))}
@@ -234,12 +239,12 @@ export function SessionView({ currentSession, onRefresh }: Props) {
       )}
 
       {/* History */}
-      {completedSessions.length > 0 && (
+      {endedSessions.length > 0 && (
         <div>
           <h3 style={{ fontFamily: 'Press Start 2P, monospace', fontSize: 11, color: 'var(--text-dim)', marginBottom: 12 }}>
-            HISTORY ({completedSessions.length})
+            ENDED ({endedSessions.length})
           </h3>
-          {completedSessions.map(s => (
+          {endedSessions.map(s => (
             <div key={s.id} style={{ border: '1px solid var(--border)', padding: 10, marginBottom: 6 }}>
               <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'var(--text-dim)' }}>
                 {s.name ?? s.id.slice(0, 12)}

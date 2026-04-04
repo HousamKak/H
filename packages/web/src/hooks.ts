@@ -10,14 +10,28 @@ import {
 const POLL_MS = 3000;
 
 export function useSession() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [focusedSession, setFocusedSession] = useState<Session | null>(null);
+  const [activeSessions, setActiveSessions] = useState<Session[]>([]);
   const [sessionProjects, setSessionProjects] = useState<Project[]>([]);
+
   const refresh = useCallback(() => {
-    api.sessions.active().then(s => setSession(s)).catch(() => setSession(null));
-    api.sessions.projects().then(setSessionProjects).catch(() => {});
+    api.sessions.focused().then(s => setFocusedSession(s)).catch(() => setFocusedSession(null));
+    api.sessions.active().then(setActiveSessions).catch(() => {});
   }, []);
+
+  // Refresh projects when focused session changes
+  useEffect(() => {
+    if (focusedSession) {
+      api.sessions.projects(focusedSession.id).then(setSessionProjects).catch(() => setSessionProjects([]));
+    } else {
+      setSessionProjects([]);
+    }
+  }, [focusedSession?.id]);
+
   useEffect(() => { refresh(); const t = setInterval(refresh, POLL_MS); return () => clearInterval(t); }, [refresh]);
-  return { session, sessionProjects, refresh };
+
+  // Backward-compat alias
+  return { session: focusedSession, focusedSession, activeSessions, sessionProjects, refresh };
 }
 
 export function useProjects() {

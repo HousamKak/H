@@ -55,13 +55,11 @@ export interface HEvent {
 export interface Session {
   id: string;
   name?: string;
-  status: string;
+  status: 'active' | 'ended';
   startedAt: string;
-  pausedAt?: string;
-  completedAt?: string;
+  endedAt?: string;
   focusDescription?: string;
   config: Record<string, unknown>;
-  snapshot: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -230,18 +228,19 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => fetchJSON<{ status: string; timestamp: string }>('/health'),
   sessions: {
-    list: () => fetchJSON<Session[]>('/sessions'),
-    active: () => fetchJSON<Session>('/sessions/active').catch(() => null),
+    list: (status?: 'active' | 'ended') =>
+      fetchJSON<Session[]>(`/sessions${status ? `?status=${status}` : ''}`),
+    active: () => fetchJSON<Session[]>('/sessions/active'),
+    focused: () => fetchJSON<Session>('/sessions/focused').catch(() => null),
     start: (data: { name?: string; focusDescription?: string; projectIds?: string[] }) =>
       fetchJSON<Session>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
-    pause: () => fetchJSON<{ ok: boolean }>('/sessions/pause', { method: 'POST' }),
-    resume: (id: string) => fetchJSON<Session>(`/sessions/${id}/resume`, { method: 'POST' }),
-    complete: () => fetchJSON<{ ok: boolean }>('/sessions/complete', { method: 'POST' }),
-    projects: () => fetchJSON<Project[]>('/sessions/projects'),
-    addProject: (projectId: string, isPrimary?: boolean) =>
-      fetchJSON<{ ok: boolean }>('/sessions/projects', { method: 'POST', body: JSON.stringify({ projectId, isPrimary }) }),
-    removeProject: (projectId: string) =>
-      fetchJSON<{ ok: boolean }>(`/sessions/projects/${projectId}`, { method: 'DELETE' }),
+    end: (id: string) => fetchJSON<{ ok: boolean }>(`/sessions/${id}/end`, { method: 'POST' }),
+    focus: (id: string) => fetchJSON<Session>(`/sessions/${id}/focus`, { method: 'POST' }),
+    projects: (sessionId: string) => fetchJSON<Project[]>(`/sessions/${sessionId}/projects`),
+    addProject: (sessionId: string, projectId: string, isPrimary?: boolean) =>
+      fetchJSON<{ ok: boolean }>(`/sessions/${sessionId}/projects`, { method: 'POST', body: JSON.stringify({ projectId, isPrimary }) }),
+    removeProject: (sessionId: string, projectId: string) =>
+      fetchJSON<{ ok: boolean }>(`/sessions/${sessionId}/projects/${projectId}`, { method: 'DELETE' }),
   },
   projectLinks: {
     list: (projectId: string) => fetchJSON<Array<{ project: Project; link: ProjectLink }>>(`/project-links/${projectId}`),

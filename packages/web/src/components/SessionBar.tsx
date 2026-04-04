@@ -2,14 +2,15 @@ import { useState } from 'react';
 import { api, type Session, type Project } from '../api.js';
 
 interface SessionBarProps {
-  session: Session | null;
+  focusedSession: Session | null;
+  activeSessions: Session[];
   sessionProjects: Project[];
   currentProjectId?: string;
   onProjectSelect: (id: string) => void;
   onRefresh: () => void;
 }
 
-export function SessionBar({ session, sessionProjects, currentProjectId, onProjectSelect, onRefresh }: SessionBarProps) {
+export function SessionBar({ focusedSession, activeSessions, sessionProjects, currentProjectId, onProjectSelect, onRefresh }: SessionBarProps) {
   const [showStartForm, setShowStartForm] = useState(false);
   const [newSessionName, setNewSessionName] = useState('');
 
@@ -21,75 +22,106 @@ export function SessionBar({ session, sessionProjects, currentProjectId, onProje
     onRefresh();
   };
 
-  const handlePause = async () => {
-    await api.sessions.pause();
+  const handleFocus = async (sessionId: string) => {
+    await api.sessions.focus(sessionId);
     onRefresh();
   };
 
-  const handleComplete = async () => {
-    await api.sessions.complete();
+  const handleEnd = async () => {
+    if (!focusedSession) return;
+    if (!confirm(`End session "${focusedSession.name ?? focusedSession.id.slice(0, 8)}"? This will terminate all its agents.`)) return;
+    await api.sessions.end(focusedSession.id);
     onRefresh();
   };
 
-  if (!session) {
-    return (
-      <div style={{ gridArea: 'session-bar', padding: '8px 16px', borderBottom: '1px solid #1a3a1a', background: '#0a1a0a', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ color: '#666', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>NO ACTIVE SESSION</span>
+  const barStyle: React.CSSProperties = {
+    gridArea: 'session-bar',
+    padding: '6px 16px',
+    borderBottom: '1px solid #1a3a1a',
+    background: '#0a1a0a',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 36,
+  };
+
+  const sessionTabStyle = (isFocused: boolean): React.CSSProperties => ({
+    padding: '4px 12px',
+    background: isFocused ? '#1a3a1a' : 'transparent',
+    color: isFocused ? '#33ff33' : '#1a6a1a',
+    border: `1px solid ${isFocused ? '#33ff33' : '#1a3a1a'}`,
+    cursor: 'pointer',
+    fontFamily: 'JetBrains Mono, monospace',
+    fontSize: 11,
+    fontWeight: isFocused ? 'bold' : 'normal',
+  });
+
+  return (
+    <div style={barStyle}>
+      {/* Session tabs */}
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+        {activeSessions.map(s => (
+          <button
+            key={s.id}
+            onClick={() => handleFocus(s.id)}
+            style={sessionTabStyle(s.id === focusedSession?.id)}
+            title={s.focusDescription ?? s.name}
+          >
+            {s.name ?? s.id.slice(0, 8)}
+          </button>
+        ))}
         {showStartForm ? (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             <input
               value={newSessionName}
               onChange={e => setNewSessionName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleStart()}
               placeholder="session name..."
-              style={{ background: '#0d1f0d', border: '1px solid #1a3a1a', color: '#33ff33', padding: '4px 8px', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}
+              style={{ background: '#0d1f0d', border: '1px solid #1a3a1a', color: '#33ff33', padding: '3px 8px', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, width: 140 }}
               autoFocus
             />
-            <button onClick={handleStart} style={{ background: '#1a3a1a', color: '#33ff33', border: 'none', padding: '4px 12px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>START</button>
-            <button onClick={() => setShowStartForm(false)} style={{ background: 'none', color: '#666', border: 'none', cursor: 'pointer', fontSize: 11 }}>cancel</button>
+            <button onClick={handleStart} style={{ background: '#1a3a1a', color: '#33ff33', border: 'none', padding: '3px 8px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>OK</button>
+            <button onClick={() => setShowStartForm(false)} style={{ background: 'none', color: '#666', border: 'none', cursor: 'pointer', fontSize: 10 }}>x</button>
           </div>
         ) : (
-          <button onClick={() => setShowStartForm(true)} style={{ background: '#1a3a1a', color: '#33ff33', border: 'none', padding: '4px 12px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>+ NEW SESSION</button>
+          <button
+            onClick={() => setShowStartForm(true)}
+            title="New session"
+            style={{ background: 'none', color: '#1a6a1a', border: '1px dashed #1a3a1a', padding: '3px 10px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}
+          >+ session</button>
         )}
       </div>
-    );
-  }
 
-  return (
-    <div style={{ gridArea: 'session-bar', padding: '8px 16px', borderBottom: '1px solid #1a3a1a', background: '#0a1a0a', display: 'flex', alignItems: 'center', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ color: '#33ff33', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 'bold' }}>
-          SESSION: {session.name ?? session.id.slice(0, 8)}
-        </span>
-        <span style={{ color: '#1a6a1a', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}>
-          [{session.status}]
-        </span>
-      </div>
+      {/* Separator */}
+      {focusedSession && <div style={{ width: 1, height: 20, background: '#1a3a1a', margin: '0 4px' }} />}
 
-      <div style={{ display: 'flex', gap: 4, flex: 1 }}>
-        {sessionProjects.map(p => (
-          <button
-            key={p.id}
-            onClick={() => onProjectSelect(p.id)}
-            style={{
-              background: p.id === currentProjectId ? '#1a3a1a' : 'transparent',
-              color: p.id === currentProjectId ? '#33ff33' : '#1a6a1a',
-              border: `1px solid ${p.id === currentProjectId ? '#33ff33' : '#1a3a1a'}`,
-              padding: '2px 10px',
-              cursor: 'pointer',
-              fontFamily: 'JetBrains Mono, monospace',
-              fontSize: 11,
-            }}
-          >
-            {p.name}
-          </button>
-        ))}
-      </div>
+      {/* Project tabs for focused session */}
+      {focusedSession && (
+        <div style={{ display: 'flex', gap: 4, flex: 1 }}>
+          {sessionProjects.map(p => (
+            <button
+              key={p.id}
+              onClick={() => onProjectSelect(p.id)}
+              style={{
+                background: p.id === currentProjectId ? '#0d1f0d' : 'transparent',
+                color: p.id === currentProjectId ? '#33ccff' : '#1a4a6a',
+                border: `1px solid ${p.id === currentProjectId ? '#33ccff' : '#1a3a4a'}`,
+                padding: '3px 10px',
+                cursor: 'pointer',
+                fontFamily: 'JetBrains Mono, monospace',
+                fontSize: 10,
+              }}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={handlePause} style={{ background: 'none', color: '#aa8800', border: '1px solid #aa8800', padding: '2px 8px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>PAUSE</button>
-        <button onClick={handleComplete} style={{ background: 'none', color: '#666', border: '1px solid #333', padding: '2px 8px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>END</button>
-      </div>
+      {/* Actions */}
+      {focusedSession && (
+        <button onClick={handleEnd} title="End focused session" style={{ background: 'none', color: '#aa3333', border: '1px solid #aa3333', padding: '2px 8px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>END</button>
+      )}
     </div>
   );
 }

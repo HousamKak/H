@@ -1,5 +1,5 @@
 import type {
-  Session, CreateSessionInput, SessionStatus, SessionSnapshot,
+  Session, CreateSessionInput, SessionStatus,
   ProjectLink, CreateProjectLinkInput, Project,
 } from '@h/types';
 import type { EventBus } from '@h/events';
@@ -17,12 +17,6 @@ export class SessionService {
   }
 
   async startSession(input: CreateSessionInput): Promise<Session> {
-    // Pause any currently active session
-    const active = this.sessionRepo.findActive();
-    if (active) {
-      await this.pauseSession(active.id);
-    }
-
     const session = this.sessionRepo.create(input);
 
     // Add initial projects
@@ -44,33 +38,8 @@ export class SessionService {
     return this.sessionRepo.findById(session.id)!;
   }
 
-  async pauseSession(sessionId: string, snapshot?: SessionSnapshot): Promise<void> {
-    this.sessionRepo.updateStatus(sessionId, 'paused', snapshot);
-
-    await this.eventBus.emit('session.paused', {
-      sessionId,
-      snapshot: snapshot ?? null,
-    }, {
-      source: 'session-service',
-      sessionId,
-    });
-  }
-
-  async resumeSession(sessionId: string): Promise<Session> {
-    this.sessionRepo.updateResumed(sessionId);
-
-    await this.eventBus.emit('session.resumed', {
-      sessionId,
-    }, {
-      source: 'session-service',
-      sessionId,
-    });
-
-    return this.sessionRepo.findById(sessionId)!;
-  }
-
-  async completeSession(sessionId: string): Promise<void> {
-    this.sessionRepo.updateStatus(sessionId, 'completed');
+  async endSession(sessionId: string): Promise<void> {
+    this.sessionRepo.endSession(sessionId);
 
     await this.eventBus.emit('session.completed', {
       sessionId,
@@ -107,8 +76,9 @@ export class SessionService {
     });
   }
 
-  getActiveSession(): Session | undefined {
-    return this.sessionRepo.findActive();
+  /** Returns all sessions with status='active' (unlimited concurrent sessions). */
+  getActiveSessions(): Session[] {
+    return this.sessionRepo.findAllActive();
   }
 
   getSession(id: string): Session | undefined {

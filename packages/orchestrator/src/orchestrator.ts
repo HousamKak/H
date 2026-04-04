@@ -1,6 +1,7 @@
 import type {
   Project, CreateProjectInput, CreateTaskInput, AgentRole, Task, AgentInstance, CostLimits,
   Session, CreateSessionInput, SessionStatus, ProjectLink, CreateProjectLinkInput,
+  SessionSnapshot,
 } from '@h/types';
 import { generateId } from '@h/types';
 import { EventBus } from '@h/events';
@@ -35,8 +36,8 @@ export class Orchestrator {
   private terminalManager: TerminalManager;
   private statusReporter: StatusReporter;
   private commandParser: CommandParser;
-  private currentSessionId?: string;
-  private currentProjectId?: string; // active project within session
+  private focusedSessionId?: string;   // UI focus only, not runtime-scoping
+  private currentProjectId?: string;   // active project for focused session
   private assignmentInterval?: ReturnType<typeof setInterval>;
   private costLimits: CostLimits = { perTask: 5, perGraph: 20, daily: 50, perAgent: 10 };
 
@@ -95,13 +96,13 @@ export class Orchestrator {
     // Auto-register agent cards for A2A discovery
     this.eventBus.on('agent.spawned', (event) => {
       const agent = (event.payload as any).agent;
-      if (agent && this.currentSessionId) {
+      if (agent && this.focusedSessionId) {
         this.agentCardRegistry.register({
           agentId: agent.id,
           name: `${agent.definitionRole}-${agent.id.slice(0, 8)}`,
           description: `${agent.definitionRole} agent`,
           projectId: agent.projectId,
-          sessionId: this.currentSessionId,
+          sessionId: this.focusedSessionId,
           capabilities: [agent.definitionRole],
         });
       }
@@ -128,20 +129,20 @@ export class Orchestrator {
   async initialize(): Promise<void> {
     await this.agentService.loadDefinitions();
 
-    // Restore active session if one exists
-    const activeSession = this.sessionService.getActiveSession();
-    if (activeSession) {
-      this.currentSessionId = activeSession.id;
-      const primaryProjectId = this.sessionService.getPrimaryProjectId(activeSession.id);
+    // Set focused session to most recent active (UI only)
+    const activeSessions = this.sessionService.getActiveSessions();
+    if (activeSessions.length > 0) {
+      this.focusedSessionId = activeSessions[0].id;
+      const primaryProjectId = this.sessionService.getPrimaryProjectId(activeSessions[0].id);
       if (primaryProjectId) this.currentProjectId = primaryProjectId;
     }
 
     await this.eventBus.emit('system.started', { message: 'H Assistant initialized' }, {
       source: 'orchestrator',
-      sessionId: this.currentSessionId,
+      sessionId: this.focusedSessionId,
     });
 
-    // Start task assignment loop
+    // Start task assignment loop (scans all active sessions)
     this.assignmentInterval = setInterval(() => this.assignPendingTasks(), 2000);
   }
 
@@ -155,70 +156,75 @@ export class Orchestrator {
 
     await this.eventBus.emit('system.shutdown', { message: 'H Assistant shutting down' }, {
       source: 'orchestrator',
-      sessionId: this.currentSessionId,
+      sessionId: this.focusedSessionId,
     });
 
     this.eventBus.clear();
   }
 
-  // ---- Session Management ----
+  // ---- Session Management (always-on, multiple concurrent) ----
 
   async startSession(input: CreateSessionInput): Promise<Session> {
     const session = await this.sessionService.startSession(input);
-    this.currentSessionId = session.id;
+    // Newly created session becomes focused by default
+    this.focusedSessionId = session.id;
     const projectIds = this.sessionService.getSessionProjectIds(session.id);
     if (projectIds.length > 0) this.currentProjectId = projectIds[0];
     return session;
   }
 
-  async pauseSession(): Promise<void> {
-    if (!this.currentSessionId) throw new Error('No active session');
-    await this.sessionService.pauseSession(this.currentSessionId);
-    this.currentSessionId = undefined;
-    this.currentProjectId = undefined;
+  async endSession(sessionId: string): Promise<void> {
+    await this.sessionService.endSession(sessionId);
+    if (this.focusedSessionId === sessionId) {
+      const remaining = this.sessionService.getActiveSessions();
+      this.focusedSessionId = remaining[0]?.id;
+      this.currentProjectId = this.focusedSessionId
+        ? this.sessionService.getPrimaryProjectId(this.focusedSessionId)
+        : undefined;
+    }
   }
 
-  async resumeSession(sessionId: string): Promise<Session> {
-    const session = await this.sessionService.resumeSession(sessionId);
-    this.currentSessionId = session.id;
-    const primaryProjectId = this.sessionService.getPrimaryProjectId(session.id);
-    if (primaryProjectId) this.currentProjectId = primaryProjectId;
+  setFocusedSession(sessionId: string): Session | undefined {
+    const session = this.sessionService.getSession(sessionId);
+    if (session && session.status === 'active') {
+      this.focusedSessionId = sessionId;
+      const primary = this.sessionService.getPrimaryProjectId(sessionId);
+      if (primary) this.currentProjectId = primary;
+    }
     return session;
   }
 
-  async completeSession(): Promise<void> {
-    if (!this.currentSessionId) throw new Error('No active session');
-    await this.sessionService.completeSession(this.currentSessionId);
-    this.currentSessionId = undefined;
-    this.currentProjectId = undefined;
+  getFocusedSession(): Session | undefined {
+    return this.focusedSessionId ? this.sessionService.getSession(this.focusedSessionId) : undefined;
   }
 
-  getActiveSession(): Session | undefined {
-    return this.currentSessionId ? this.sessionService.getSession(this.currentSessionId) : undefined;
+  getActiveSessions(): Session[] {
+    return this.sessionService.getActiveSessions();
   }
 
   getSessions(filter?: { status?: SessionStatus }): Session[] {
     return this.sessionService.getAllSessions(filter);
   }
 
-  async addProjectToSession(projectId: string, isPrimary = false): Promise<void> {
-    if (!this.currentSessionId) throw new Error('No active session');
-    await this.sessionService.addProject(this.currentSessionId, projectId, isPrimary);
-    if (isPrimary || !this.currentProjectId) this.currentProjectId = projectId;
+  async addProjectToSession(sessionId: string, projectId: string, isPrimary = false): Promise<void> {
+    await this.sessionService.addProject(sessionId, projectId, isPrimary);
+    if (sessionId === this.focusedSessionId && (isPrimary || !this.currentProjectId)) {
+      this.currentProjectId = projectId;
+    }
   }
 
-  async removeProjectFromSession(projectId: string): Promise<void> {
-    if (!this.currentSessionId) throw new Error('No active session');
-    await this.sessionService.removeProject(this.currentSessionId, projectId);
-    if (this.currentProjectId === projectId) {
-      const ids = this.sessionService.getSessionProjectIds(this.currentSessionId);
+  async removeProjectFromSession(sessionId: string, projectId: string): Promise<void> {
+    await this.sessionService.removeProject(sessionId, projectId);
+    if (sessionId === this.focusedSessionId && this.currentProjectId === projectId) {
+      const ids = this.sessionService.getSessionProjectIds(sessionId);
       this.currentProjectId = ids[0];
     }
   }
 
-  getSessionProjects(): Project[] {
-    if (!this.currentSessionId) return [];
-    return this.sessionService.getSessionProjects(this.currentSessionId);
+  getSessionProjects(sessionId?: string): Project[] {
+    const id = sessionId ?? this.focusedSessionId;
+    if (!id) return [];
+    return this.sessionService.getSessionProjects(id);
   }
 
   // ---- Project Links ----
@@ -260,7 +266,7 @@ export class Orchestrator {
   async createTask(input: CreateTaskInput): Promise<Task> {
     return this.taskService.create({
       ...input,
-      sessionId: input.sessionId ?? this.currentSessionId,
+      sessionId: input.sessionId ?? this.focusedSessionId,
     });
   }
 
@@ -277,7 +283,7 @@ export class Orchestrator {
   async spawnAgent(role: AgentRole, projectId?: string): Promise<AgentInstance> {
     const pid = projectId ?? this.currentProjectId;
     if (!pid) throw new Error('No project selected. Use setCurrentProject() first.');
-    return this.agentService.spawn({ role, projectId: pid, sessionId: this.currentSessionId });
+    return this.agentService.spawn({ role, projectId: pid, sessionId: this.focusedSessionId });
   }
 
   async stopAgent(agentId: string): Promise<void> {
@@ -299,7 +305,7 @@ export class Orchestrator {
 
     await this.eventBus.emit('message.received', { content: message, source }, {
       source,
-      sessionId: this.currentSessionId,
+      sessionId: this.focusedSessionId,
       projectId: this.currentProjectId,
     });
 
@@ -307,7 +313,7 @@ export class Orchestrator {
 
     switch (command.type) {
       case 'status':
-        response = this.statusReporter.getFullStatus(this.currentProjectId, this.currentSessionId);
+        response = this.statusReporter.getFullStatus(this.currentProjectId, this.focusedSessionId);
         break;
 
       case 'projects':
@@ -331,20 +337,28 @@ export class Orchestrator {
             focusDescription: command.args.focus,
           });
           response = `Session started: ${session.name ?? session.id}`;
-        } else if (command.args.action === 'pause') {
-          await this.pauseSession();
-          response = 'Session paused';
-        } else if (command.args.action === 'resume') {
-          const session = await this.resumeSession(command.args.sessionId);
-          response = `Session resumed: ${session.name ?? session.id}`;
-        } else if (command.args.action === 'complete') {
-          await this.completeSession();
-          response = 'Session completed';
+        } else if (command.args.action === 'end') {
+          if (command.args.sessionId) {
+            await this.endSession(command.args.sessionId);
+            response = 'Session ended';
+          } else if (this.focusedSessionId) {
+            await this.endSession(this.focusedSessionId);
+            response = 'Session ended';
+          } else {
+            response = 'No session to end';
+          }
+        } else if (command.args.action === 'focus') {
+          if (command.args.sessionId) {
+            const s = this.setFocusedSession(command.args.sessionId);
+            response = s ? `Focused session: ${s.name ?? s.id}` : 'Session not found';
+          } else {
+            response = 'Usage: /session focus <sessionId>';
+          }
         } else {
-          const active = this.getActiveSession();
-          response = active
-            ? this.statusReporter.getSessionStatus(active.id)
-            : 'No active session. Use /session start <name>';
+          const focused = this.getFocusedSession();
+          response = focused
+            ? this.statusReporter.getSessionStatus(focused.id)
+            : 'No focused session. Use /session start <name>';
         }
         break;
 
@@ -353,9 +367,9 @@ export class Orchestrator {
         break;
 
       case 'add-project':
-        if (!this.currentSessionId) { response = 'No active session.'; break; }
+        if (!this.focusedSessionId) { response = 'No focused session.'; break; }
         if (command.args.projectId) {
-          await this.addProjectToSession(command.args.projectId, command.args.primary);
+          await this.addProjectToSession(this.focusedSessionId, command.args.projectId, command.args.primary);
           response = `Project added to session`;
         } else {
           response = 'Usage: /add-project <project-name-or-id> [--primary]';
@@ -436,7 +450,7 @@ export class Orchestrator {
 
     await this.eventBus.emit('message.sent', { content: response, target: source }, {
       source: 'orchestrator',
-      sessionId: this.currentSessionId,
+      sessionId: this.focusedSessionId,
       projectId: this.currentProjectId,
     });
 
@@ -446,11 +460,12 @@ export class Orchestrator {
   // ---- Enhanced Task Assignment (across all session projects) ----
 
   private async assignPendingTasks(): Promise<void> {
+    // Scan all idle agents across ALL active sessions
     const idleAgents = this.agentService.getIdleAgents();
     if (idleAgents.length === 0) return;
 
     for (const agent of idleAgents) {
-      // Skip agents from previous processes that have no in-memory runtime
+      // Skip agents with no in-memory runtime (stale from previous process)
       if (!this.agentService.hasRuntime(agent.id)) continue;
 
       const task = this.taskQueue.getNextTaskScored(
@@ -476,7 +491,7 @@ export class Orchestrator {
           agentId: payload.agentId,
           currentCost: agentTotal,
           limit: this.costLimits.perAgent,
-        }, { source: 'orchestrator', sessionId: this.currentSessionId });
+        }, { source: 'orchestrator', sessionId: this.focusedSessionId });
       }
     }
 
@@ -486,7 +501,7 @@ export class Orchestrator {
         scope: 'daily',
         currentCost: dailyTotal,
         limit: this.costLimits.daily,
-      }, { source: 'orchestrator', sessionId: this.currentSessionId });
+      }, { source: 'orchestrator', sessionId: this.focusedSessionId });
     }
   }
 
@@ -516,10 +531,10 @@ export class Orchestrator {
     return [
       '## H Commands\n',
       '**Session:**',
-      '  /session — Show active session',
+      '  /session — Show focused session',
       '  /session start <name> — Start new session',
-      '  /session pause — Pause current session',
-      '  /session complete — Complete current session',
+      '  /session focus <id> — Switch focused session',
+      '  /session end [id] — End a session',
       '  /sessions — List all sessions',
       '',
       '**Projects:**',

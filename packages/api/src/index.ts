@@ -20,14 +20,19 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // ---- Sessions ----
-  app.get('/api/sessions', (_req, res) => {
-    res.json(orchestrator.getSessions());
+  // ---- Sessions (always-on, unlimited concurrent) ----
+  app.get('/api/sessions', (req, res) => {
+    const status = req.query.status as ('active' | 'ended' | undefined);
+    res.json(orchestrator.getSessions(status ? { status } : undefined));
   });
 
   app.get('/api/sessions/active', (_req, res) => {
-    const session = orchestrator.getActiveSession();
-    if (!session) return res.status(404).json({ error: 'No active session' });
+    res.json(orchestrator.getActiveSessions());
+  });
+
+  app.get('/api/sessions/focused', (_req, res) => {
+    const session = orchestrator.getFocusedSession();
+    if (!session) return res.status(404).json({ error: 'No focused session' });
     res.json(session);
   });
 
@@ -41,9 +46,9 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     }
   });
 
-  app.post('/api/sessions/pause', async (_req, res) => {
+  app.post('/api/sessions/:id/end', async (req, res) => {
     try {
-      await orchestrator.pauseSession();
+      await orchestrator.endSession(req.params.id);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -51,9 +56,10 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     }
   });
 
-  app.post('/api/sessions/:id/resume', async (req, res) => {
+  app.post('/api/sessions/:id/focus', async (req, res) => {
     try {
-      const session = await orchestrator.resumeSession(req.params.id);
+      const session = orchestrator.setFocusedSession(req.params.id);
+      if (!session) return res.status(404).json({ error: 'Session not found or not active' });
       res.json(session);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -61,24 +67,14 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     }
   });
 
-  app.post('/api/sessions/complete', async (_req, res) => {
-    try {
-      await orchestrator.completeSession();
-      res.json({ ok: true });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: message });
-    }
+  app.get('/api/sessions/:id/projects', (req, res) => {
+    res.json(orchestrator.getSessionProjects(req.params.id));
   });
 
-  app.get('/api/sessions/projects', (_req, res) => {
-    res.json(orchestrator.getSessionProjects());
-  });
-
-  app.post('/api/sessions/projects', async (req, res) => {
+  app.post('/api/sessions/:id/projects', async (req, res) => {
     try {
       const { projectId, isPrimary } = req.body;
-      await orchestrator.addProjectToSession(projectId, isPrimary);
+      await orchestrator.addProjectToSession(req.params.id, projectId, isPrimary);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -86,9 +82,9 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     }
   });
 
-  app.delete('/api/sessions/projects/:projectId', async (req, res) => {
+  app.delete('/api/sessions/:id/projects/:projectId', async (req, res) => {
     try {
-      await orchestrator.removeProjectFromSession(req.params.projectId);
+      await orchestrator.removeProjectFromSession(req.params.id, req.params.projectId);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

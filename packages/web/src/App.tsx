@@ -15,6 +15,7 @@ import { CostDashboard } from './components/CostDashboard.js';
 import { TraceView } from './components/TraceView.js';
 import { A2AView } from './components/A2AView.js';
 import { TerminalsView } from './components/TerminalsView.js';
+import { SessionView } from './components/SessionView.js';
 
 export function App() {
   const [activeView, setActiveView] = useState('dashboard');
@@ -47,7 +48,9 @@ export function App() {
   const renderView = () => {
     switch (activeView) {
       case 'dashboard':
-        return <Dashboard agents={agents} tasks={tasks} queue={queue} costSummary={costSummary} />;
+        return <Dashboard agents={agents} tasks={tasks} queue={queue} costSummary={costSummary} session={session} sessionProjects={sessionProjects} />;
+      case 'session':
+        return <SessionView currentSession={session} onResume={refreshSession} />;
       case 'terminal':
         return <Terminal lines={lines} onSend={sendCommand} events={events} />;
       case 'agents':

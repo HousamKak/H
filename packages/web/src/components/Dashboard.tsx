@@ -1,4 +1,4 @@
-import type { AgentInstance, Task } from '../api.js';
+import type { AgentInstance, Task, CostSummary, Session, Project } from '../api.js';
 import type { QueueSnapshot } from '../api.js';
 import { PixelSprite } from './PixelSprite.js';
 
@@ -6,15 +6,48 @@ interface Props {
   agents: AgentInstance[];
   tasks: Task[];
   queue: QueueSnapshot;
+  costSummary?: CostSummary | null;
+  session?: Session | null;
+  sessionProjects?: Project[];
 }
 
-export function Dashboard({ agents, tasks, queue }: Props) {
+export function Dashboard({ agents, tasks, queue, costSummary, session, sessionProjects }: Props) {
   const recentTasks = [...tasks].sort((a, b) =>
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   ).slice(0, 5);
 
   return (
     <div>
+      {/* Session Info */}
+      {session && (
+        <div className="panel">
+          <div className="panel-header">
+            <span>SESSION</span>
+            <span style={{ color: 'var(--text-dim)' }}>{session.status}</span>
+          </div>
+          <div className="panel-body" style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: '14px', color: 'var(--text-dim)' }}>NAME</div>
+              <div style={{ fontSize: '18px', color: 'var(--green)' }}>{session.name ?? session.id.slice(0, 12)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '14px', color: 'var(--text-dim)' }}>PROJECTS</div>
+              <div style={{ fontSize: '18px', color: 'var(--green)' }}>{sessionProjects?.length ?? 0}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '14px', color: 'var(--text-dim)' }}>STARTED</div>
+              <div style={{ fontSize: '14px', color: 'var(--text)' }}>{new Date(session.startedAt).toLocaleString()}</div>
+            </div>
+            {session.focusDescription && (
+              <div>
+                <div style={{ fontSize: '14px', color: 'var(--text-dim)' }}>FOCUS</div>
+                <div style={{ fontSize: '14px', color: 'var(--text)' }}>{session.focusDescription}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="panel">
         <div className="panel-header">
@@ -57,6 +90,14 @@ export function Dashboard({ agents, tasks, queue }: Props) {
                 {queue.failed}
               </div>
             </div>
+            {costSummary && (
+              <div className="stat-card">
+                <div className="stat-label">DAILY COST</div>
+                <div className="stat-value amber">
+                  ${costSummary.daily.toFixed(4)}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

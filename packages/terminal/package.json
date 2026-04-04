@@ -1,5 +1,5 @@
 {
-  "name": "@h/agents",
+  "name": "@h/terminal",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,11 +19,6 @@
   "dependencies": {
     "@h/types": "workspace:*",
     "@h/events": "workspace:*",
-    "@h/db": "workspace:*",
-    "@h/llm": "workspace:*",
-    "@h/tools": "workspace:*",
-    "@h/tasks": "workspace:*",
-    "@h/memory": "workspace:*",
-    "@h/terminal": "workspace:*"
+    "@h/db": "workspace:*"
   }
 }

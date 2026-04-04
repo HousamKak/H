@@ -365,6 +365,33 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     }
   });
 
+  // ---- Terminals ----
+  app.get('/api/terminals', async (req, res) => {
+    try {
+      const sessionId = req.query.sessionId as string;
+      const projectId = req.query.projectId as string | undefined;
+      if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+      const { TerminalRepository } = await import('@h/db');
+      const termRepo = new TerminalRepository();
+      res.json(termRepo.findBySession(sessionId, projectId));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get('/api/terminals/:id/output', (req, res) => {
+    try {
+      const lines = parseInt(req.query.lines as string) || 100;
+      // Output is in-memory only via TerminalManager — return empty for now
+      // Will be wired when orchestrator exposes terminalManager
+      res.json({ lines: [] });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ---- WebSocket: Real-time events ----
   wss.on('connection', (ws) => {
     const subId = orchestrator.events.subscribe({}, (event: HEvent) => {

@@ -74,6 +74,22 @@ export interface ProjectLink {
   description?: string;
 }
 
+export interface TerminalInfo {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  agentId?: string;
+  name: string;
+  type: string;
+  status: string;
+  pid?: number;
+  command: string;
+  cwd: string;
+  exitCode?: number;
+  startedAt: string;
+  stoppedAt?: string;
+}
+
 export interface QueueSnapshot {
   pending: number;
   inProgress: number;
@@ -202,6 +218,12 @@ export const api = {
     list: (projectId: string) => fetchJSON<Array<{ project: Project; link: ProjectLink }>>(`/project-links/${projectId}`),
     create: (data: { sourceProjectId: string; targetProjectId: string; linkType: string }) =>
       fetchJSON<ProjectLink>('/project-links', { method: 'POST', body: JSON.stringify(data) }),
+  },
+  terminals: {
+    list: (sessionId: string, projectId?: string) =>
+      fetchJSON<TerminalInfo[]>(`/terminals?sessionId=${sessionId}${projectId ? `&projectId=${projectId}` : ''}`),
+    output: (id: string, lines = 100) =>
+      fetchJSON<{ lines: string[] }>(`/terminals/${id}/output?lines=${lines}`),
   },
   projects: {
     list: () => fetchJSON<Project[]>('/projects'),

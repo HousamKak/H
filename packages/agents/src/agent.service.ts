@@ -3,9 +3,11 @@ import { AgentRepository } from '@h/db';
 import type { EventBus } from '@h/events';
 import type { ProviderRegistry } from '@h/llm';
 import type { ToolExecutor } from '@h/tools';
-import type { MemoryService } from '@h/memory';
+import type { MemoryService, BlackboardService } from '@h/memory';
 import type { TaskService } from '@h/tasks';
+import type { TerminalManager } from '@h/terminal';
 import { AgentRuntime } from './agent-runtime.js';
+import { ClaudeCodeRuntime } from './claude-code-runtime.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -15,8 +17,11 @@ export class AgentService {
   private providerRegistry: ProviderRegistry;
   private toolExecutor: ToolExecutor;
   private memoryService: MemoryService;
+  private blackboard: BlackboardService;
   private taskService: TaskService;
-  private runtimes: Map<string, AgentRuntime> = new Map();
+  private terminalManager?: TerminalManager;
+  private internalRuntimes: Map<string, AgentRuntime> = new Map();
+  private ccRuntimes: Map<string, ClaudeCodeRuntime> = new Map();
   private schemasDir: string;
 
   constructor(deps: {
@@ -24,16 +29,20 @@ export class AgentService {
     providerRegistry: ProviderRegistry;
     toolExecutor: ToolExecutor;
     memoryService: MemoryService;
+    blackboard: BlackboardService;
     taskService: TaskService;
     schemasDir: string;
+    terminalManager?: TerminalManager;
   }) {
     this.agentRepo = new AgentRepository();
     this.eventBus = deps.eventBus;
     this.providerRegistry = deps.providerRegistry;
     this.toolExecutor = deps.toolExecutor;
     this.memoryService = deps.memoryService;
+    this.blackboard = deps.blackboard;
     this.taskService = deps.taskService;
     this.schemasDir = deps.schemasDir;
+    this.terminalManager = deps.terminalManager;
   }
 
   async loadDefinitions(): Promise<void> {
@@ -64,25 +73,51 @@ export class AgentService {
     }
 
     const instance = this.agentRepo.createInstance(input, definition.tokenBudget);
+    const runtimeType = input.runtimeType ?? 'internal';
 
-    // Create runtime
-    const llmProvider = this.providerRegistry.get(definition.llmProvider);
-    const runtime = new AgentRuntime(instance, definition, {
-      eventBus: this.eventBus,
-      llmProvider,
-      toolExecutor: this.toolExecutor,
-      memoryService: this.memoryService,
-      taskService: this.taskService,
-      agentRepo: this.agentRepo,
-    });
-
-    this.runtimes.set(instance.id, runtime);
+    if (runtimeType === 'internal') {
+      // Internal LLM loop runtime
+      const llmProvider = this.providerRegistry.get(definition.llmProvider);
+      const runtime = new AgentRuntime(instance, definition, {
+        eventBus: this.eventBus,
+        llmProvider,
+        toolExecutor: this.toolExecutor,
+        memoryService: this.memoryService,
+        blackboard: this.blackboard,
+        taskService: this.taskService,
+        agentRepo: this.agentRepo,
+      });
+      this.internalRuntimes.set(instance.id, runtime);
+    } else if (runtimeType.startsWith('claude_code') && this.terminalManager) {
+      // Claude Code process runtime
+      const ccRuntime = new ClaudeCodeRuntime(instance, definition, {
+        eventBus: this.eventBus,
+        taskService: this.taskService,
+        terminalManager: this.terminalManager,
+        agentRepo: this.agentRepo,
+      });
+      this.ccRuntimes.set(instance.id, ccRuntime);
+    } else {
+      // Fallback to internal
+      const llmProvider = this.providerRegistry.get(definition.llmProvider);
+      const runtime = new AgentRuntime(instance, definition, {
+        eventBus: this.eventBus,
+        llmProvider,
+        toolExecutor: this.toolExecutor,
+        memoryService: this.memoryService,
+        blackboard: this.blackboard,
+        taskService: this.taskService,
+        agentRepo: this.agentRepo,
+      });
+      this.internalRuntimes.set(instance.id, runtime);
+    }
 
     // Transition to idle
     this.agentRepo.updateInstanceStatus(instance.id, 'idle');
 
     await this.eventBus.emit('agent.spawned', { agent: instance }, {
       source: 'agent-service',
+      sessionId: input.sessionId,
       projectId: input.projectId,
       agentId: instance.id,
     });
@@ -91,31 +126,51 @@ export class AgentService {
   }
 
   async assignTask(agentId: string, task: Task): Promise<void> {
-    const runtime = this.runtimes.get(agentId);
-    if (!runtime) throw new Error(`No runtime found for agent ${agentId}`);
+    // Check internal runtimes first
+    const internalRuntime = this.internalRuntimes.get(agentId);
+    if (internalRuntime) {
+      internalRuntime.start(task).catch((err) => {
+        console.error(`Agent ${agentId} failed on task ${task.id}:`, err);
+      });
+      return;
+    }
 
-    // Run the task in the background (non-blocking)
-    runtime.start(task).catch((err) => {
-      console.error(`Agent ${agentId} failed on task ${task.id}:`, err);
-    });
+    // Check Claude Code runtimes
+    const ccRuntime = this.ccRuntimes.get(agentId);
+    if (ccRuntime) {
+      ccRuntime.start(task).catch((err) => {
+        console.error(`CC Agent ${agentId} failed on task ${task.id}:`, err);
+      });
+      return;
+    }
+
+    throw new Error(`No runtime found for agent ${agentId}`);
   }
 
   async stopAgent(agentId: string): Promise<void> {
-    const runtime = this.runtimes.get(agentId);
-    if (runtime) {
-      await runtime.stop();
-      this.runtimes.delete(agentId);
+    const internalRuntime = this.internalRuntimes.get(agentId);
+    if (internalRuntime) {
+      await internalRuntime.stop();
+      this.internalRuntimes.delete(agentId);
+      return;
+    }
+
+    const ccRuntime = this.ccRuntimes.get(agentId);
+    if (ccRuntime) {
+      await ccRuntime.stop();
+      this.ccRuntimes.delete(agentId);
+      return;
     }
   }
 
   getRuntime(agentId: string): AgentRuntime | undefined {
-    return this.runtimes.get(agentId);
+    return this.internalRuntimes.get(agentId);
   }
 
   getActiveAgents(projectId?: string): AgentInstance[] {
     return this.agentRepo.findAllInstances({
       projectId,
-      status: undefined, // Get all non-terminated
+      status: undefined,
     }).filter((a) => a.status !== 'terminated');
   }
 

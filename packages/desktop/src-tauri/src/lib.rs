@@ -6,7 +6,7 @@ use std::thread;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    Emitter, Manager, RunEvent, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 
 // ============================================================================

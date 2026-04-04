@@ -15,17 +15,55 @@ use tauri::{
 
 struct ApiServer(Mutex<Option<Child>>);
 
-fn spawn_api_server() -> Option<Child> {
-    let root = project_root();
+fn spawn_api_server(app: &tauri::AppHandle) -> Option<Child> {
     let child = if cfg!(debug_assertions) {
+        // Dev mode: run from repo via tsx (requires Node on PATH)
+        let root = std::env::current_dir().unwrap_or_default();
         Command::new("npx")
             .args(["tsx", "packages/cli/src/index.ts", "start", "--no-telegram"])
             .current_dir(&root)
             .spawn()
     } else {
-        Command::new("node")
-            .args(["packages/cli/dist/index.js", "start", "--no-telegram"])
-            .current_dir(&root)
+        // Production: spawn bundled node sidecar with bundled backend.cjs
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .expect("resource dir");
+        let backend_dir = resource_dir.join("resources").join("backend");
+        let backend_js = backend_dir.join("h-backend.cjs");
+        let schema_sql = backend_dir.join("schema.sql");
+        let schemas_dir = backend_dir.join("schemas");
+
+        // Writable dirs in app data
+        let app_data = app.path().app_data_dir().expect("app data dir");
+        let data_dir = app_data.join("data");
+        let mcp_configs_dir = data_dir.join("mcp-configs");
+        std::fs::create_dir_all(&data_dir).ok();
+        std::fs::create_dir_all(&mcp_configs_dir).ok();
+        let db_path = data_dir.join("h.db");
+
+        // Locate bundled node.exe sidecar
+        let node_exe = resource_dir
+            .join("binaries")
+            .join("h-node-x86_64-pc-windows-msvc.exe");
+
+        // Fall back to system node if sidecar missing (shouldn't happen in bundled builds)
+        let node_cmd: std::path::PathBuf = if node_exe.exists() {
+            node_exe
+        } else {
+            "node".into()
+        };
+
+        Command::new(node_cmd)
+            .arg(&backend_js)
+            .arg("start")
+            .arg("--no-telegram")
+            .env("H_DB_PATH", db_path.to_string_lossy().to_string())
+            .env("H_SCHEMA_PATH", schema_sql.to_string_lossy().to_string())
+            .env("H_SCHEMAS_DIR", schemas_dir.to_string_lossy().to_string())
+            .env("H_API_PORT", "3100")
+            .env("H_MCP_CONFIG_DIR", mcp_configs_dir.to_string_lossy().to_string())
+            .current_dir(&data_dir)
             .spawn()
     };
 
@@ -41,23 +79,6 @@ fn spawn_api_server() -> Option<Child> {
     }
 }
 
-fn project_root() -> String {
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
-
-    if cfg!(debug_assertions) {
-        std::env::current_dir()
-            .unwrap_or_else(|_| exe_dir.unwrap_or_default())
-            .to_string_lossy()
-            .to_string()
-    } else {
-        exe_dir
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| ".".to_string())
-    }
-}
-
 #[tauri::command]
 fn get_api_status(state: tauri::State<ApiServer>) -> bool {
     let guard = state.0.lock().unwrap();
@@ -70,13 +91,13 @@ fn get_api_status(state: tauri::State<ApiServer>) -> bool {
 }
 
 #[tauri::command]
-fn restart_api(state: tauri::State<ApiServer>) -> String {
+fn restart_api(app: tauri::AppHandle, state: tauri::State<ApiServer>) -> String {
     let mut guard = state.0.lock().unwrap();
     if let Some(ref mut child) = *guard {
         let _ = child.kill();
         let _ = child.wait();
     }
-    *guard = spawn_api_server();
+    *guard = spawn_api_server(&app);
     match *guard {
         Some(ref c) => format!("API server restarted (pid: {})", c.id()),
         None => "Failed to restart API server".to_string(),
@@ -254,14 +275,12 @@ fn pty_list(state: tauri::State<PtyManager>) -> Vec<String> {
 // ============================================================================
 
 pub fn run() {
-    let api_child = spawn_api_server();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
-        .manage(ApiServer(Mutex::new(api_child)))
+        .manage(ApiServer(Mutex::new(None)))
         .manage(PtyManager(Mutex::new(HashMap::new())))
         .invoke_handler(tauri::generate_handler![
             get_api_status,
@@ -273,6 +292,10 @@ pub fn run() {
             pty_list,
         ])
         .setup(|app| {
+            // Spawn the H backend now that we have access to paths
+            let child = spawn_api_server(&app.handle());
+            app.state::<ApiServer>().0.lock().unwrap().replace(child.expect("backend failed to start"));
+
             // ---- System Tray ----
             let show = MenuItemBuilder::with_id("show", "Show H").build(app)?;
             let restart = MenuItemBuilder::with_id("restart_api", "Restart API").build(app)?;
@@ -303,7 +326,7 @@ pub fn run() {
                             let _ = child.kill();
                             let _ = child.wait();
                         }
-                        *guard = spawn_api_server();
+                        *guard = spawn_api_server(app);
                     }
                     "quit" => {
                         // Clean up API server and all PTYs before quitting

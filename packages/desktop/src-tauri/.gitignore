@@ -1,0 +1,6 @@
+# Build artifacts
+/target/
+/resources/backend/
+
+# Bundled binary (license allows redistribution but don't commit 85MB)
+/binaries/*.exe

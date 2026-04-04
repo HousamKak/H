@@ -29,3 +29,8 @@ logs/
 # Build
 .turbo/
 *.tsbuildinfo
+
+# Rust build output (on D: drive)
+.cargo-target/
+bash.exe.stackdump
+.playwright-mcp/

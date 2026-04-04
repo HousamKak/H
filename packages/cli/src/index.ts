@@ -18,8 +18,12 @@ let orchestrator: Orchestrator | null = null;
 
 function getOrchestrator(): Orchestrator {
   if (!orchestrator) {
-    const schemasDir = resolve(import.meta.dirname, '..', '..', '..', 'schemas');
-    const dbPath = process.env.H_DB_PATH ?? resolve(import.meta.dirname, '..', '..', '..', 'data', 'h.db');
+    // Resolve schemas dir: env var first (desktop bundle), then relative to module
+    const moduleDir = (import.meta.dirname as string | undefined) ?? process.cwd();
+    const schemasDir = process.env.H_SCHEMAS_DIR
+      ?? resolve(moduleDir, '..', '..', '..', 'schemas');
+    const dbPath = process.env.H_DB_PATH
+      ?? resolve(moduleDir, '..', '..', '..', 'data', 'h.db');
     orchestrator = new Orchestrator(schemasDir, dbPath);
   }
   return orchestrator;

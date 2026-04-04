@@ -125,6 +125,10 @@ export class AgentService {
     return { ...instance, status: 'idle' };
   }
 
+  hasRuntime(agentId: string): boolean {
+    return this.internalRuntimes.has(agentId) || this.ccRuntimes.has(agentId);
+  }
+
   async assignTask(agentId: string, task: Task): Promise<void> {
     // Check internal runtimes first
     const internalRuntime = this.internalRuntimes.get(agentId);
@@ -144,7 +148,8 @@ export class AgentService {
       return;
     }
 
-    throw new Error(`No runtime found for agent ${agentId}`);
+    // No runtime — agent is stale from a previous process, skip silently
+    console.warn(`[H] No runtime for agent ${agentId} — skipping task assignment (stale agent)`);
   }
 
   async stopAgent(agentId: string): Promise<void> {

@@ -450,6 +450,9 @@ export class Orchestrator {
     if (idleAgents.length === 0) return;
 
     for (const agent of idleAgents) {
+      // Skip agents from previous processes that have no in-memory runtime
+      if (!this.agentService.hasRuntime(agent.id)) continue;
+
       const task = this.taskQueue.getNextTaskScored(
         agent.definitionRole as AgentRole,
         agent.projectId,

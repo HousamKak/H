@@ -271,6 +271,59 @@ fn pty_list(state: tauri::State<PtyManager>) -> Vec<String> {
 }
 
 // ============================================================================
+// Auto-Update
+// ============================================================================
+
+use tauri_plugin_updater::UpdaterExt;
+
+async fn check_for_updates(
+    app: tauri::AppHandle,
+    user_initiated: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let updater = app.updater()?;
+    match updater.check().await? {
+        Some(update) => {
+            println!(
+                "[H Desktop] Update available: {} -> {}",
+                update.current_version, update.version
+            );
+            // Download and install (Tauri's built-in dialog asks the user first)
+            let mut downloaded = 0usize;
+            update
+                .download_and_install(
+                    |chunk_length, content_length| {
+                        downloaded += chunk_length;
+                        if let Some(total) = content_length {
+                            let pct = (downloaded as f64 / total as f64) * 100.0;
+                            println!("[H Desktop] Update download: {:.1}%", pct);
+                        }
+                    },
+                    || {
+                        println!("[H Desktop] Update downloaded, installing...");
+                    },
+                )
+                .await?;
+            println!("[H Desktop] Update installed, restarting...");
+            app.restart();
+        }
+        None => {
+            if user_initiated {
+                println!("[H Desktop] No updates available");
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn manual_check_updates(app: tauri::AppHandle) -> Result<String, String> {
+    match check_for_updates(app, true).await {
+        Ok(_) => Ok("Update check completed".to_string()),
+        Err(e) => Err(format!("Update check failed: {}", e)),
+    }
+}
+
+// ============================================================================
 // App Entry
 // ============================================================================
 
@@ -280,11 +333,14 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(ApiServer(Mutex::new(None)))
         .manage(PtyManager(Mutex::new(HashMap::new())))
         .invoke_handler(tauri::generate_handler![
             get_api_status,
             restart_api,
+            manual_check_updates,
             pty_spawn,
             pty_write,
             pty_resize,
@@ -296,15 +352,25 @@ pub fn run() {
             let child = spawn_api_server(&app.handle());
             app.state::<ApiServer>().0.lock().unwrap().replace(child.expect("backend failed to start"));
 
+            // Check for updates in the background on startup
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = check_for_updates(handle, false).await {
+                    eprintln!("[H Desktop] Update check failed: {}", e);
+                }
+            });
+
             // ---- System Tray ----
             let show = MenuItemBuilder::with_id("show", "Show H").build(app)?;
             let restart = MenuItemBuilder::with_id("restart_api", "Restart API").build(app)?;
+            let check_update = MenuItemBuilder::with_id("check_update", "Check for Updates").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
             let menu = MenuBuilder::new(app)
                 .item(&show)
                 .separator()
                 .item(&restart)
+                .item(&check_update)
                 .separator()
                 .item(&quit)
                 .build()?;
@@ -327,6 +393,12 @@ pub fn run() {
                             let _ = child.wait();
                         }
                         *guard = spawn_api_server(app);
+                    }
+                    "check_update" => {
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = check_for_updates(handle, true).await;
+                        });
                     }
                     "quit" => {
                         // Clean up API server and all PTYs before quitting

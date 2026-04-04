@@ -1,0 +1,77 @@
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Get pnpm store
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install pnpm deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+
+      - name: Build TypeScript packages
+        run: pnpm build
+
+      - name: Build web frontend
+        run: pnpm --filter @h/web build
+
+      - name: Copy node.exe sidecar
+        shell: pwsh
+        run: |
+          $nodePath = (Get-Command node).Source
+          New-Item -ItemType Directory -Force -Path packages/desktop/src-tauri/binaries | Out-Null
+          Copy-Item $nodePath packages/desktop/src-tauri/binaries/h-node-x86_64-pc-windows-msvc.exe
+
+      - name: Bundle backend
+        run: node packages/desktop/scripts/bundle-backend.mjs
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: packages/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: 'H v__VERSION__'
+          releaseBody: 'See commit history for changes.'
+          releaseDraft: false
+          prerelease: false
+          args: ''
+          updaterJsonPreferNsis: true

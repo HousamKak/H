@@ -3,6 +3,12 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      // Tauri APIs are only available in the desktop app — externalize them
+      external: ['@tauri-apps/api/core', '@tauri-apps/api/event'],
+    },
+  },
   server: {
     port: 3200,
     proxy: {

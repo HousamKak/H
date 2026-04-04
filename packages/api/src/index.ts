@@ -274,6 +274,38 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     }
   });
 
+  app.post('/api/graphs', async (req, res) => {
+    try {
+      const { projectId, sessionId, rootTaskId, nodes, strategy, isCrossProject } = req.body;
+      if (!projectId || !rootTaskId || !nodes) {
+        return res.status(400).json({ error: 'projectId, rootTaskId, and nodes are required' });
+      }
+
+      let graph;
+      if (isCrossProject && sessionId) {
+        graph = orchestrator.graphs.createCrossProjectGraph(
+          projectId, sessionId, rootTaskId, nodes, strategy,
+        );
+      } else {
+        graph = orchestrator.graphs.createGraph(projectId, rootTaskId, nodes, strategy);
+      }
+      res.status(201).json(graph);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/graphs/:id/materialize', async (req, res) => {
+    try {
+      await orchestrator.graphs.materialize(req.params.id);
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
   app.get('/api/graphs/:id/layers', (req, res) => {
     try {
       const graph = graphRepo.findById(req.params.id);

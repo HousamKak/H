@@ -491,6 +491,20 @@ export class Orchestrator {
 
   private async onTaskCompleted(taskId?: string): Promise<void> {
     if (!taskId) return;
+    // Find if this task belongs to any graph and advance it
+    const task = this.taskService.findById(taskId);
+    if (!task) return;
+
+    // Search all graphs for a node with this taskId
+    const graphRepo = new TaskGraphRepository();
+    const graphs = graphRepo.findByProject(task.projectId);
+    for (const graph of graphs) {
+      const node = graph.nodes.find(n => n.taskId === taskId);
+      if (node) {
+        await this.taskGraphService.onTaskCompleted(graph.id, node.id);
+        break;
+      }
+    }
   }
 
   // ---- Help ----

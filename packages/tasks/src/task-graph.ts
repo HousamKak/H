@@ -48,6 +48,38 @@ export class TaskGraphService {
   }
 
   /**
+   * Create a cross-project task graph. Nodes can have individual projectId fields.
+   * The graph's projectId is the "primary" project, but each node may target a different one.
+   */
+  createCrossProjectGraph(
+    primaryProjectId: string,
+    sessionId: string,
+    rootTaskId: string,
+    nodes: Omit<TaskGraphNode, 'id' | 'status'>[],
+    strategy: 'sequential' | 'parallel' | 'mixed' = 'mixed',
+  ): TaskGraph {
+    const graphNodes: TaskGraphNode[] = nodes.map((n) => ({
+      ...n,
+      id: generateId(),
+      status: 'pending' as const,
+    }));
+
+    const isCrossProject = graphNodes.some(n => n.projectId && n.projectId !== primaryProjectId);
+
+    const graph = this.graphRepo.create({
+      projectId: primaryProjectId,
+      sessionId,
+      rootTaskId,
+      nodes: graphNodes,
+      strategy,
+      status: 'planning',
+      isCrossProject,
+    });
+
+    return graph;
+  }
+
+  /**
    * Topological sort using Kahn's algorithm.
    * Returns execution layers — groups of nodes that can run in parallel.
    * Throws if a cycle is detected.
@@ -145,8 +177,12 @@ export class TaskGraphService {
       if (nodeIndex === -1) continue;
 
       const node = updatedNodes[nodeIndex];
+      // Use node-level projectId for cross-project graphs, fallback to graph projectId
+      const nodeProjectId = node.projectId ?? graph.projectId;
+
       const task = await this.taskService.create({
-        projectId: graph.projectId,
+        projectId: nodeProjectId,
+        sessionId: graph.sessionId,
         title: node.title,
         description: node.description,
         priority: node.priority,
@@ -165,11 +201,14 @@ export class TaskGraphService {
     await this.eventBus.emit('graph.created', {
       graphId: graph.id,
       projectId: graph.projectId,
+      sessionId: graph.sessionId,
+      isCrossProject: graph.isCrossProject,
       nodeCount: graph.nodes.length,
       layerCount: layers.length,
     }, {
       source: 'task-graph-service',
       projectId: graph.projectId,
+      sessionId: graph.sessionId,
     });
   }
 
@@ -257,8 +296,11 @@ export class TaskGraphService {
         .map((depNodeId) => updatedNodes.find((n) => n.id === depNodeId)?.taskId)
         .filter((id): id is string => !!id);
 
+      const nodeProjectId = node.projectId ?? graph.projectId;
+
       const task = await this.taskService.create({
-        projectId: graph.projectId,
+        projectId: nodeProjectId,
+        sessionId: graph.sessionId,
         title: node.title,
         description: node.description,
         priority: node.priority,

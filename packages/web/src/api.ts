@@ -144,6 +144,7 @@ export interface TaskGraphNode {
   title: string;
   description: string;
   requiredRole: string;
+  projectId?: string;
   dependsOn: string[];
   priority: string;
   status: string;
@@ -153,10 +154,12 @@ export interface TaskGraphNode {
 export interface TaskGraph {
   id: string;
   projectId: string;
+  sessionId?: string;
   rootTaskId: string;
   nodes: TaskGraphNode[];
   strategy: string;
   status: string;
+  isCrossProject?: boolean;
   createdAt: string;
 }
 

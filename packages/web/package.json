@@ -19,6 +19,7 @@
     "recharts": "^3.8.1"
   },
   "devDependencies": {
+    "@tauri-apps/api": "^2.10.1",
     "@types/dagre": "^0.7.54",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",

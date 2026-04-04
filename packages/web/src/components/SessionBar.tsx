@@ -33,7 +33,7 @@ export function SessionBar({ session, sessionProjects, currentProjectId, onProje
 
   if (!session) {
     return (
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid #1a3a1a', background: '#0a1a0a', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ gridArea: 'session-bar', padding: '8px 16px', borderBottom: '1px solid #1a3a1a', background: '#0a1a0a', display: 'flex', alignItems: 'center', gap: 12 }}>
         <span style={{ color: '#666', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>NO ACTIVE SESSION</span>
         {showStartForm ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -56,7 +56,7 @@ export function SessionBar({ session, sessionProjects, currentProjectId, onProje
   }
 
   return (
-    <div style={{ padding: '8px 16px', borderBottom: '1px solid #1a3a1a', background: '#0a1a0a', display: 'flex', alignItems: 'center', gap: 16 }}>
+    <div style={{ gridArea: 'session-bar', padding: '8px 16px', borderBottom: '1px solid #1a3a1a', background: '#0a1a0a', display: 'flex', alignItems: 'center', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ color: '#33ff33', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 'bold' }}>
           SESSION: {session.name ?? session.id.slice(0, 8)}

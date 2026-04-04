@@ -4,11 +4,16 @@ import { TerminalRepository } from '@h/db';
 import { ProcessHandle } from './process-handle.js';
 import { OutputParser, type ClaudeCodeEvent } from './output-parser.js';
 
+export type TerminalOutputHandler = (chunk: string, stream: 'stdout' | 'stderr') => void;
+export type TerminalExitHandler = (exitCode: number | null) => void;
+
 interface ManagedTerminal {
   terminal: Terminal;
   handle: ProcessHandle;
   parser?: OutputParser;
   eventHandlers: Array<(event: ClaudeCodeEvent) => void>;
+  outputHandlers: Set<TerminalOutputHandler>;
+  exitHandlers: Set<TerminalExitHandler>;
 }
 
 export class TerminalManager {
@@ -32,7 +37,7 @@ export class TerminalManager {
       env: input.env,
     });
 
-    const managed: ManagedTerminal = { terminal, handle, eventHandlers: [] };
+    const managed: ManagedTerminal = { terminal, handle, eventHandlers: [], outputHandlers: new Set(), exitHandlers: new Set() };
     this.terminals.set(terminal.id, managed);
 
     this.wireHandleEvents(managed);
@@ -88,7 +93,7 @@ export class TerminalManager {
     });
 
     const parser = new OutputParser();
-    const managed: ManagedTerminal = { terminal, handle, parser, eventHandlers: [] };
+    const managed: ManagedTerminal = { terminal, handle, parser, eventHandlers: [], outputHandlers: new Set(), exitHandlers: new Set() };
     this.terminals.set(terminal.id, managed);
 
     // Wire stream-json parsing
@@ -197,8 +202,48 @@ export class TerminalManager {
     }
   }
 
+  /**
+   * Subscribe to raw stdout/stderr output from a terminal.
+   * Returns an unsubscribe function. Used by WebSocket streaming.
+   */
+  subscribeOutput(terminalId: string, handler: TerminalOutputHandler): () => void {
+    const managed = this.terminals.get(terminalId);
+    if (!managed) return () => {};
+    managed.outputHandlers.add(handler);
+    return () => { managed.outputHandlers.delete(handler); };
+  }
+
+  /**
+   * Subscribe to terminal exit events.
+   */
+  subscribeExit(terminalId: string, handler: TerminalExitHandler): () => void {
+    const managed = this.terminals.get(terminalId);
+    if (!managed) return () => {};
+    managed.exitHandlers.add(handler);
+    return () => { managed.exitHandlers.delete(handler); };
+  }
+
+  /**
+   * Check if terminal has a live in-memory process handle (running).
+   */
+  isActive(terminalId: string): boolean {
+    return this.terminals.has(terminalId);
+  }
+
   private wireHandleEvents(managed: ManagedTerminal): void {
     const { terminal, handle, parser } = managed;
+
+    // Forward raw output to all subscribers (for WebSocket streaming)
+    handle.on('stdout', (data: string) => {
+      for (const handler of managed.outputHandlers) {
+        try { handler(data, 'stdout'); } catch {}
+      }
+    });
+    handle.on('stderr', (data: string) => {
+      for (const handler of managed.outputHandlers) {
+        try { handler(data, 'stderr'); } catch {}
+      }
+    });
 
     handle.on('exit', (code: number | null) => {
       // Flush remaining parser buffer
@@ -213,6 +258,11 @@ export class TerminalManager {
 
       const status: TerminalStatus = code === 0 ? 'completed' : 'crashed';
       this.terminalRepo.updateStatus(terminal.id, status, { exitCode: code ?? undefined });
+
+      // Notify WebSocket subscribers
+      for (const handler of managed.exitHandlers) {
+        try { handler(code); } catch {}
+      }
 
       this.eventBus.emit('terminal.exited', {
         terminalId: terminal.id,

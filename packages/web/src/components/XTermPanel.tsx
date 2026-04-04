@@ -11,30 +11,38 @@ declare global {
 }
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const WS_BASE = isTauri
+  ? 'ws://localhost:3100'
+  : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+
+type Mode = 'tauri' | 'websocket';
 
 interface XTermPanelProps {
-  ptyId?: string;
-  command?: string;
+  mode?: Mode;                  // defaults to 'websocket' (works in browser + Tauri)
+  terminalId?: string;          // attach to existing terminal (websocket mode)
+  ptyId?: string;               // Tauri PTY id (tauri mode)
+  command?: string;             // for Tauri PTY spawn
   args?: string[];
   cwd?: string;
-  onSpawned?: (ptyId: string) => void;
-  onExit?: (ptyId: string) => void;
+  onSpawned?: (id: string) => void;
+  onExit?: (id: string) => void;
 }
 
 /**
  * Interactive terminal panel using xterm.js.
- * In Tauri: connects to a real PTY via Tauri commands/events.
- * In browser: shows a placeholder (PTY requires native access).
+ * - websocket mode: connects to /ws/terminals/:id (works in browser)
+ * - tauri mode: uses Tauri PTY commands/events (full PTY, desktop only)
  */
-export function XTermPanel({ ptyId: initialPtyId, command, args, cwd, onSpawned, onExit }: XTermPanelProps) {
-  const termRef = useRef<HTMLDivElement>(null);
+export function XTermPanel({ mode = 'websocket', terminalId, ptyId, command, args, cwd, onSpawned, onExit }: XTermPanelProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const [ptyId, setPtyId] = useState<string | undefined>(initialPtyId);
   const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState<string>('');
 
+  // Initialize xterm
   useEffect(() => {
-    if (!termRef.current) return;
+    if (!containerRef.current) return;
 
     const term = new XTerm({
       theme: {
@@ -53,27 +61,22 @@ export function XTermPanel({ ptyId: initialPtyId, command, args, cwd, onSpawned,
       fontSize: 13,
       cursorBlink: true,
       allowProposedApi: true,
+      convertEol: true,
     });
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
-    term.open(termRef.current);
-    fitAddon.fit();
+    term.open(containerRef.current);
+    setTimeout(() => fitAddon.fit(), 50);
 
     xtermRef.current = term;
     fitRef.current = fitAddon;
 
-    // Resize observer
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      try { fitAddon.fit(); } catch {}
     });
-    resizeObserver.observe(termRef.current);
-
-    if (!isTauri) {
-      term.writeln('\x1b[33m[H] Terminal requires the desktop app (Tauri).\x1b[0m');
-      term.writeln('\x1b[90mPTY is not available in browser mode.\x1b[0m');
-    }
+    resizeObserver.observe(containerRef.current);
 
     return () => {
       resizeObserver.disconnect();
@@ -83,9 +86,62 @@ export function XTermPanel({ ptyId: initialPtyId, command, args, cwd, onSpawned,
     };
   }, []);
 
-  // Tauri PTY integration
+  // WebSocket mode
   useEffect(() => {
-    if (!isTauri || !xtermRef.current) return;
+    if (mode !== 'websocket' || !terminalId || !xtermRef.current) return;
+
+    const term = xtermRef.current;
+    term.writeln(`\x1b[90m[H] Connecting to terminal ${terminalId.slice(0, 8)}...\x1b[0m`);
+
+    const ws = new WebSocket(`${WS_BASE}/ws/terminals/${terminalId}`);
+
+    ws.onopen = () => setConnected(true);
+
+    ws.onmessage = (msg) => {
+      try {
+        const parsed = JSON.parse(msg.data);
+        if (parsed.type === 'output') {
+          term.write(parsed.data);
+        } else if (parsed.type === 'exit') {
+          term.writeln(`\r\n\x1b[90m[Process exited with code ${parsed.exitCode}]\x1b[0m`);
+          setConnected(false);
+          setStatus(`exited(${parsed.exitCode})`);
+          onExit?.(terminalId);
+        } else if (parsed.type === 'error') {
+          term.writeln(`\r\n\x1b[31m[Error: ${parsed.error}]\x1b[0m`);
+          setStatus('error');
+        } else if (parsed.type === 'ready') {
+          setStatus('connected');
+        }
+      } catch { /* ignore */ }
+    };
+
+    ws.onerror = () => {
+      term.writeln('\r\n\x1b[31m[WebSocket error]\x1b[0m');
+      setStatus('error');
+    };
+
+    ws.onclose = () => {
+      setConnected(false);
+      if (status !== 'exited') setStatus('disconnected');
+    };
+
+    // Send keystrokes
+    const disposeData = term.onData((data) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'stdin', data }));
+      }
+    });
+
+    return () => {
+      disposeData.dispose();
+      ws.close();
+    };
+  }, [mode, terminalId]);
+
+  // Tauri PTY mode (unchanged)
+  useEffect(() => {
+    if (mode !== 'tauri' || !isTauri || !xtermRef.current) return;
 
     let currentPtyId = ptyId;
     let unlisten: (() => void) | null = null;
@@ -95,34 +151,20 @@ export function XTermPanel({ ptyId: initialPtyId, command, args, cwd, onSpawned,
       const { invoke } = await import('@tauri-apps/api/core');
       const { listen } = await import('@tauri-apps/api/event');
 
-      // Spawn PTY if no existing ID
       if (!currentPtyId && command) {
         const cols = xtermRef.current?.cols ?? 80;
         const rows = xtermRef.current?.rows ?? 24;
         currentPtyId = await invoke<string>('pty_spawn', {
-          command,
-          args: args ?? [],
-          cwd: cwd ?? '.',
-          cols,
-          rows,
+          command, args: args ?? [], cwd: cwd ?? '.', cols, rows,
         });
-        setPtyId(currentPtyId);
         onSpawned?.(currentPtyId);
-        setConnected(true);
-      } else if (currentPtyId) {
-        setConnected(true);
       }
-
       if (!currentPtyId) return;
+      setConnected(true);
 
-      // Listen for PTY output
       unlisten = (await listen<{ pty_id: string; data: string }>('pty-output', (event) => {
-        if (event.payload.pty_id === currentPtyId) {
-          xtermRef.current?.write(event.payload.data);
-        }
+        if (event.payload.pty_id === currentPtyId) xtermRef.current?.write(event.payload.data);
       })) as unknown as () => void;
-
-      // Listen for PTY exit
       unlistenExit = (await listen<{ pty_id: string }>('pty-exit', (event) => {
         if (event.payload.pty_id === currentPtyId) {
           xtermRef.current?.writeln('\r\n\x1b[90m[Process exited]\x1b[0m');
@@ -131,43 +173,30 @@ export function XTermPanel({ ptyId: initialPtyId, command, args, cwd, onSpawned,
         }
       })) as unknown as () => void;
 
-      // Send keystrokes to PTY
       xtermRef.current?.onData(async (data) => {
-        if (currentPtyId && connected) {
-          await invoke('pty_write', { ptyId: currentPtyId, data });
-        }
+        if (currentPtyId && connected) await invoke('pty_write', { ptyId: currentPtyId, data });
       });
-
-      // Handle resize
       xtermRef.current?.onResize(async ({ cols, rows }) => {
-        if (currentPtyId) {
-          await invoke('pty_resize', { ptyId: currentPtyId, cols, rows });
-        }
+        if (currentPtyId) await invoke('pty_resize', { ptyId: currentPtyId, cols, rows });
       });
     }
 
     setup();
-
-    return () => {
-      unlisten?.();
-      unlistenExit?.();
-    };
-  }, [isTauri, command, ptyId]);
+    return () => { unlisten?.(); unlistenExit?.(); };
+  }, [mode, ptyId, command]);
 
   return (
-    <div style={{ height: '100%', width: '100%', position: 'relative' }}>
-      {!connected && ptyId && (
+    <div style={{ height: '100%', width: '100%', position: 'relative', background: '#0a0f0a' }}>
+      {status && (
         <div style={{
-          position: 'absolute', top: 4, right: 8, zIndex: 10,
-          fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: '#ff3333',
+          position: 'absolute', top: 2, right: 6, zIndex: 10,
+          fontSize: 9, fontFamily: 'JetBrains Mono, monospace',
+          color: connected ? '#33ff33' : '#aa3333',
         }}>
-          DISCONNECTED
+          {status}
         </div>
       )}
-      <div
-        ref={termRef}
-        style={{ height: '100%', width: '100%' }}
-      />
+      <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
     </div>
   );
 }

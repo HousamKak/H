@@ -260,8 +260,20 @@ export const api = {
   terminals: {
     list: (sessionId: string, projectId?: string) =>
       fetchJSON<TerminalInfo[]>(`/terminals?sessionId=${sessionId}${projectId ? `&projectId=${projectId}` : ''}`),
-    output: (id: string, lines = 100) =>
-      fetchJSON<{ lines: string[] }>(`/terminals/${id}/output?lines=${lines}`),
+    get: (id: string) => fetchJSON<TerminalInfo>(`/terminals/${id}`),
+    spawn: (input: {
+      sessionId: string;
+      projectId: string;
+      agentId?: string;
+      name?: string;
+      type?: string;
+      command: string;
+      args?: string[];
+      cwd: string;
+      env?: Record<string, string>;
+    }) => fetchJSON<TerminalInfo>('/terminals/spawn', { method: 'POST', body: JSON.stringify(input) }),
+    kill: (id: string) =>
+      fetchJSON<{ ok: boolean }>(`/terminals/${id}/kill`, { method: 'POST' }),
   },
   projects: {
     list: () => fetchJSON<Project[]>('/projects'),

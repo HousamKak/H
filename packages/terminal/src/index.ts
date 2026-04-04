@@ -1,3 +1,3 @@
 export { ProcessHandle } from './process-handle.js';
 export { OutputParser, type ClaudeCodeEvent } from './output-parser.js';
-export { TerminalManager } from './terminal-manager.js';
+export { TerminalManager, type TerminalOutputHandler, type TerminalExitHandler } from './terminal-manager.js';

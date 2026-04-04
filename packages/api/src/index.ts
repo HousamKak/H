@@ -10,7 +10,25 @@ import { TaskGraphRepository, TraceRepository, EpisodeRepository, CheckpointRepo
 export async function startApiServer(orchestrator: Orchestrator, port?: number): Promise<void> {
   const app = express();
   const server = createServer(app);
-  const wss = new WebSocketServer({ server, path: '/ws' });
+
+  // Dual WebSocket: /ws for events, /ws/terminals/:id for terminal streaming
+  const eventsWss = new WebSocketServer({ noServer: true });
+  const terminalsWss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    if (url.pathname === '/ws') {
+      eventsWss.handleUpgrade(req, socket, head, (ws) => eventsWss.emit('connection', ws, req));
+    } else if (url.pathname.startsWith('/ws/terminals/')) {
+      const terminalId = url.pathname.slice('/ws/terminals/'.length);
+      terminalsWss.handleUpgrade(req, socket, head, (ws) => {
+        (ws as any)._terminalId = terminalId;
+        terminalsWss.emit('connection', ws, req);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
 
   app.use(cors());
   app.use(express.json());
@@ -453,43 +471,112 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
       const sessionId = req.query.sessionId as string;
       const projectId = req.query.projectId as string | undefined;
       if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
-      const { TerminalRepository } = await import('@h/db');
-      const termRepo = new TerminalRepository();
-      res.json(termRepo.findBySession(sessionId, projectId));
+      res.json(orchestrator.terminals.getTerminals(sessionId, projectId));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
   });
 
-  app.get('/api/terminals/:id/output', (req, res) => {
+  app.post('/api/terminals/spawn', async (req, res) => {
     try {
-      const lines = parseInt(req.query.lines as string) || 100;
-      // Output is in-memory only via TerminalManager — return empty for now
-      // Will be wired when orchestrator exposes terminalManager
-      res.json({ lines: [] });
+      const { sessionId, projectId, agentId, name, type, command, args, cwd, env } = req.body;
+      if (!sessionId || !projectId || !command || !cwd) {
+        return res.status(400).json({ error: 'sessionId, projectId, command, cwd are required' });
+      }
+      const terminal = await orchestrator.terminals.spawn({
+        sessionId, projectId, agentId,
+        name: name ?? command,
+        type: type ?? 'shell',
+        command,
+        args: args ?? [],
+        cwd,
+        env: env ?? {},
+      });
+      res.status(201).json(terminal);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
+  });
+
+  app.post('/api/terminals/:id/kill', async (req, res) => {
+    try {
+      await orchestrator.terminals.kill(req.params.id);
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get('/api/terminals/:id', (req, res) => {
+    const terminal = orchestrator.terminals.getTerminal(req.params.id);
+    if (!terminal) return res.status(404).json({ error: 'Terminal not found' });
+    res.json(terminal);
   });
 
   // ---- WebSocket: Real-time events ----
-  wss.on('connection', (ws) => {
+  eventsWss.on('connection', (ws) => {
     const subId = orchestrator.events.subscribe({}, (event: HEvent) => {
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({ type: 'event', event }));
       }
     });
-
     ws.on('close', () => {
       orchestrator.events.unsubscribe(subId);
     });
   });
 
+  // ---- WebSocket: Terminal streaming ----
+  terminalsWss.on('connection', (ws) => {
+    const terminalId = (ws as any)._terminalId as string;
+
+    if (!terminalId || !orchestrator.terminals.isActive(terminalId)) {
+      ws.send(JSON.stringify({ type: 'error', error: 'Terminal not active' }));
+      ws.close();
+      return;
+    }
+
+    // Subscribe to output
+    const unsubOutput = orchestrator.terminals.subscribeOutput(terminalId, (data, stream) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'output', stream, data }));
+      }
+    });
+
+    // Subscribe to exit
+    const unsubExit = orchestrator.terminals.subscribeExit(terminalId, (exitCode) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'exit', exitCode }));
+      }
+    });
+
+    // Handle stdin from client
+    ws.on('message', (msg) => {
+      try {
+        const parsed = JSON.parse(msg.toString());
+        if (parsed.type === 'stdin' && typeof parsed.data === 'string') {
+          orchestrator.terminals.write(terminalId, parsed.data);
+        } else if (parsed.type === 'kill') {
+          orchestrator.terminals.kill(terminalId).catch(() => {});
+        }
+      } catch { /* ignore malformed */ }
+    });
+
+    ws.on('close', () => {
+      unsubOutput();
+      unsubExit();
+    });
+
+    // Send ready
+    ws.send(JSON.stringify({ type: 'ready', terminalId }));
+  });
+
   const listenPort = port ?? parseInt(process.env.H_API_PORT ?? '3100');
   server.listen(listenPort, () => {
     console.log(`[H] API server running on http://localhost:${listenPort}`);
-    console.log(`[H] WebSocket on ws://localhost:${listenPort}/ws`);
+    console.log(`[H] Events WebSocket on ws://localhost:${listenPort}/ws`);
+    console.log(`[H] Terminal WebSocket on ws://localhost:${listenPort}/ws/terminals/:id`);
   });
 }

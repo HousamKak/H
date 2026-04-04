@@ -1,4 +1,7 @@
-const API_BASE = '/api';
+// In Tauri production builds, files are loaded from disk (tauri://localhost),
+// so we need an absolute URL to reach the API server.
+const isTauri = '__TAURI_INTERNALS__' in window;
+const API_BASE = isTauri ? 'http://localhost:3100/api' : '/api';
 
 export interface Project {
   id: string;
@@ -41,11 +44,34 @@ export interface HEvent {
   id: string;
   type: string;
   timestamp: string;
+  sessionId?: string;
   projectId?: string;
   agentId?: string;
   taskId?: string;
   payload: Record<string, unknown>;
   source: string;
+}
+
+export interface Session {
+  id: string;
+  name?: string;
+  status: string;
+  startedAt: string;
+  pausedAt?: string;
+  completedAt?: string;
+  focusDescription?: string;
+  config: Record<string, unknown>;
+  snapshot: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectLink {
+  id: string;
+  sourceProjectId: string;
+  targetProjectId: string;
+  linkType: string;
+  description?: string;
 }
 
 export interface QueueSnapshot {
@@ -55,6 +81,96 @@ export interface QueueSnapshot {
   completed: number;
   failed: number;
   blocked: number;
+}
+
+// ---- New types for enhanced system ----
+
+export interface BlackboardEntry {
+  id: string;
+  projectId: string;
+  agentId: string;
+  taskId?: string;
+  type: string;
+  content: string;
+  confidence: number;
+  resolved: boolean;
+  createdAt: string;
+}
+
+export interface TaskGraphNode {
+  id: string;
+  title: string;
+  description: string;
+  requiredRole: string;
+  dependsOn: string[];
+  priority: string;
+  status: string;
+  taskId?: string;
+}
+
+export interface TaskGraph {
+  id: string;
+  projectId: string;
+  rootTaskId: string;
+  nodes: TaskGraphNode[];
+  strategy: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface ExecutionLayer {
+  index: number;
+  nodeIds: string[];
+}
+
+export interface CostRecord {
+  id: string;
+  agentId?: string;
+  taskId?: string;
+  projectId?: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  timestamp: string;
+}
+
+export interface CostSummary {
+  daily: number;
+  taskTotal: number;
+  agentTotals: Record<string, number>;
+}
+
+export interface TraceSpan {
+  id: string;
+  traceId: string;
+  parentSpanId?: string;
+  agentId?: string;
+  taskId?: string;
+  operation: string;
+  startTime: string;
+  endTime?: string;
+  status: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+  model?: string;
+  toolName?: string;
+  errorMessage?: string;
+}
+
+export interface Episode {
+  id: string;
+  projectId: string;
+  taskType: string;
+  summary: string;
+  outcome: string;
+  lessonsLearned: string[];
+  filesInvolved: string[];
+  tokenCost: number;
+  durationMs: number;
+  createdAt: string;
 }
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -68,6 +184,25 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => fetchJSON<{ status: string; timestamp: string }>('/health'),
+  sessions: {
+    list: () => fetchJSON<Session[]>('/sessions'),
+    active: () => fetchJSON<Session>('/sessions/active').catch(() => null),
+    start: (data: { name?: string; focusDescription?: string; projectIds?: string[] }) =>
+      fetchJSON<Session>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
+    pause: () => fetchJSON<{ ok: boolean }>('/sessions/pause', { method: 'POST' }),
+    resume: (id: string) => fetchJSON<Session>(`/sessions/${id}/resume`, { method: 'POST' }),
+    complete: () => fetchJSON<{ ok: boolean }>('/sessions/complete', { method: 'POST' }),
+    projects: () => fetchJSON<Project[]>('/sessions/projects'),
+    addProject: (projectId: string, isPrimary?: boolean) =>
+      fetchJSON<{ ok: boolean }>('/sessions/projects', { method: 'POST', body: JSON.stringify({ projectId, isPrimary }) }),
+    removeProject: (projectId: string) =>
+      fetchJSON<{ ok: boolean }>(`/sessions/projects/${projectId}`, { method: 'DELETE' }),
+  },
+  projectLinks: {
+    list: (projectId: string) => fetchJSON<Array<{ project: Project; link: ProjectLink }>>(`/project-links/${projectId}`),
+    create: (data: { sourceProjectId: string; targetProjectId: string; linkType: string }) =>
+      fetchJSON<ProjectLink>('/project-links', { method: 'POST', body: JSON.stringify(data) }),
+  },
   projects: {
     list: () => fetchJSON<Project[]>('/projects'),
     create: (data: { name: string; path: string; description?: string }) =>
@@ -97,12 +232,46 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ message }),
     }),
+  blackboard: {
+    list: (projectId: string, type?: string) =>
+      fetchJSON<BlackboardEntry[]>(`/blackboard?projectId=${projectId}${type ? `&type=${type}` : ''}`),
+    post: (entry: { projectId: string; agentId: string; type: string; content: string; confidence?: number; taskId?: string }) =>
+      fetchJSON<BlackboardEntry>('/blackboard', { method: 'POST', body: JSON.stringify(entry) }),
+    resolve: (id: string) =>
+      fetchJSON<{ ok: boolean }>(`/blackboard/${id}/resolve`, { method: 'POST' }),
+  },
+  graphs: {
+    list: (projectId: string) =>
+      fetchJSON<TaskGraph[]>(`/graphs?projectId=${projectId}`),
+    get: (id: string) =>
+      fetchJSON<TaskGraph>(`/graphs/${id}`),
+    layers: (id: string) =>
+      fetchJSON<ExecutionLayer[]>(`/graphs/${id}/layers`),
+  },
+  costs: {
+    list: (projectId: string) =>
+      fetchJSON<CostRecord[]>(`/costs?projectId=${projectId}`),
+    summary: (projectId: string) =>
+      fetchJSON<CostSummary>(`/costs/summary?projectId=${projectId}`),
+  },
+  traces: {
+    byTrace: (traceId: string) =>
+      fetchJSON<TraceSpan[]>(`/traces/${traceId}`),
+    byAgent: (agentId: string) =>
+      fetchJSON<TraceSpan[]>(`/traces/agent/${agentId}`),
+  },
+  episodes: {
+    list: (projectId: string) =>
+      fetchJSON<Episode[]>(`/episodes?projectId=${projectId}`),
+  },
 };
 
 // WebSocket connection for real-time events
 export function connectWS(onEvent: (event: HEvent) => void): () => void {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+  const wsUrl = isTauri
+    ? 'ws://localhost:3100/ws'
+    : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+  const ws = new WebSocket(wsUrl);
 
   ws.onmessage = (msg) => {
     try {

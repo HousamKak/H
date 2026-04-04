@@ -149,6 +149,112 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 -- ============================================================================
+-- Task Graphs (DAG decomposition)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS task_graphs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  root_task_id TEXT,
+  nodes_json TEXT NOT NULL DEFAULT '[]',
+  strategy TEXT NOT NULL DEFAULT 'mixed'
+    CHECK(strategy IN ('sequential', 'parallel', 'mixed')),
+  status TEXT NOT NULL DEFAULT 'planning'
+    CHECK(status IN ('planning', 'executing', 'completed', 'failed')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at TEXT,
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+
+-- ============================================================================
+-- Agent Checkpoints (crash recovery)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS agent_checkpoints (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+  turn_count INTEGER NOT NULL DEFAULT 0,
+  context_anchor_json TEXT NOT NULL DEFAULT '{}',
+  recent_messages_json TEXT NOT NULL DEFAULT '[]',
+  token_usage_json TEXT NOT NULL DEFAULT '{}',
+  git_ref TEXT,
+  FOREIGN KEY (agent_id) REFERENCES agent_instances(id),
+  FOREIGN KEY (task_id) REFERENCES tasks(id)
+);
+
+-- ============================================================================
+-- Blackboard (shared agent workspace)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS blackboard_entries (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  task_id TEXT,
+  type TEXT NOT NULL
+    CHECK(type IN ('hypothesis','decision','blocker','discovery','code_context','test_result','review_comment')),
+  content TEXT NOT NULL,
+  confidence REAL NOT NULL DEFAULT 0.5,
+  resolved INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+
+-- ============================================================================
+-- Episodes (past agent experiences)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS episodes (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  task_type TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK(outcome IN ('success', 'failure', 'partial')),
+  lessons_json TEXT NOT NULL DEFAULT '[]',
+  files_json TEXT NOT NULL DEFAULT '[]',
+  token_cost INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+
+-- ============================================================================
+-- Trace Spans (observability)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS trace_spans (
+  id TEXT PRIMARY KEY,
+  trace_id TEXT NOT NULL,
+  parent_span_id TEXT,
+  agent_id TEXT,
+  task_id TEXT,
+  operation TEXT NOT NULL,
+  start_time TEXT NOT NULL DEFAULT (datetime('now')),
+  end_time TEXT,
+  status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok', 'error')),
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  cost_usd REAL,
+  model TEXT,
+  tool_name TEXT,
+  error_message TEXT
+);
+
+-- ============================================================================
+-- Cost Records
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS cost_records (
+  id TEXT PRIMARY KEY,
+  trace_id TEXT,
+  agent_id TEXT,
+  task_id TEXT,
+  project_id TEXT,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL NOT NULL DEFAULT 0,
+  timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ============================================================================
 -- Tool Registry
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS tool_registry (
@@ -182,3 +288,162 @@ CREATE INDEX IF NOT EXISTS idx_memory_type ON memory_records(type);
 CREATE INDEX IF NOT EXISTS idx_memory_importance ON memory_records(importance);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id);
+
+-- New table indexes
+CREATE INDEX IF NOT EXISTS idx_task_graphs_project ON task_graphs(project_id);
+CREATE INDEX IF NOT EXISTS idx_task_graphs_status ON task_graphs(status);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_agent ON agent_checkpoints(agent_id);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_task ON agent_checkpoints(task_id);
+CREATE INDEX IF NOT EXISTS idx_blackboard_project ON blackboard_entries(project_id);
+CREATE INDEX IF NOT EXISTS idx_blackboard_type ON blackboard_entries(type);
+CREATE INDEX IF NOT EXISTS idx_blackboard_task ON blackboard_entries(task_id);
+CREATE INDEX IF NOT EXISTS idx_episodes_project ON episodes(project_id);
+CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON episodes(outcome);
+CREATE INDEX IF NOT EXISTS idx_traces_trace_id ON trace_spans(trace_id);
+CREATE INDEX IF NOT EXISTS idx_traces_agent ON trace_spans(agent_id);
+CREATE INDEX IF NOT EXISTS idx_traces_task ON trace_spans(task_id);
+CREATE INDEX IF NOT EXISTS idx_cost_project ON cost_records(project_id);
+CREATE INDEX IF NOT EXISTS idx_cost_agent ON cost_records(agent_id);
+CREATE INDEX IF NOT EXISTS idx_cost_timestamp ON cost_records(timestamp);
+
+-- ============================================================================
+-- Sessions
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK(status IN ('active','paused','completed','abandoned')),
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  paused_at TEXT,
+  resumed_at TEXT,
+  completed_at TEXT,
+  focus_description TEXT,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  snapshot_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ============================================================================
+-- Session-Project Junction
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS session_projects (
+  session_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  added_at TEXT NOT NULL DEFAULT (datetime('now')),
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (session_id, project_id),
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+
+-- ============================================================================
+-- Project Links (cross-project relationships)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS project_links (
+  id TEXT PRIMARY KEY,
+  source_project_id TEXT NOT NULL,
+  target_project_id TEXT NOT NULL,
+  link_type TEXT NOT NULL DEFAULT 'related'
+    CHECK(link_type IN ('related','depends_on','frontend_backend','monorepo_sibling','api_consumer')),
+  description TEXT,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (source_project_id) REFERENCES projects(id),
+  FOREIGN KEY (target_project_id) REFERENCES projects(id)
+);
+
+-- ============================================================================
+-- Terminals (managed processes)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS terminals (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  agent_id TEXT,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'shell'
+    CHECK(type IN ('shell','claude_code_automated','claude_code_interactive','dev_server','watcher')),
+  status TEXT NOT NULL DEFAULT 'starting'
+    CHECK(status IN ('starting','running','stopped','crashed','completed')),
+  pid INTEGER,
+  command TEXT NOT NULL,
+  args_json TEXT NOT NULL DEFAULT '[]',
+  cwd TEXT NOT NULL,
+  env_json TEXT NOT NULL DEFAULT '{}',
+  exit_code INTEGER,
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  stopped_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (session_id) REFERENCES sessions(id),
+  FOREIGN KEY (project_id) REFERENCES projects(id),
+  FOREIGN KEY (agent_id) REFERENCES agent_instances(id)
+);
+
+-- ============================================================================
+-- Agent Cards (A2A discovery)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS agent_cards (
+  agent_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  capabilities_json TEXT NOT NULL DEFAULT '[]',
+  skills_json TEXT NOT NULL DEFAULT '[]',
+  endpoint TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'available'
+    CHECK(status IN ('available','busy','offline')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (agent_id) REFERENCES agent_instances(id)
+);
+
+-- ============================================================================
+-- A2A Messages
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS a2a_messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  from_agent_id TEXT NOT NULL,
+  to_agent_id TEXT,
+  from_project_id TEXT NOT NULL,
+  to_project_id TEXT,
+  type TEXT NOT NULL DEFAULT 'message'
+    CHECK(type IN ('message','task_request','task_response','artifact','query','notification','broadcast')),
+  subject TEXT,
+  body TEXT NOT NULL,
+  artifacts_json TEXT NOT NULL DEFAULT '[]',
+  correlation_id TEXT,
+  in_reply_to TEXT,
+  priority TEXT NOT NULL DEFAULT 'normal'
+    CHECK(priority IN ('urgent','normal','low')),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending','delivered','read','processed','failed')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  delivered_at TEXT,
+  processed_at TEXT,
+  FOREIGN KEY (session_id) REFERENCES sessions(id),
+  FOREIGN KEY (from_agent_id) REFERENCES agent_instances(id),
+  FOREIGN KEY (in_reply_to) REFERENCES a2a_messages(id)
+);
+
+-- New table indexes
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_session_projects_session ON session_projects(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_projects_project ON session_projects(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_links_source ON project_links(source_project_id);
+CREATE INDEX IF NOT EXISTS idx_project_links_target ON project_links(target_project_id);
+CREATE INDEX IF NOT EXISTS idx_terminals_session ON terminals(session_id);
+CREATE INDEX IF NOT EXISTS idx_terminals_project ON terminals(project_id);
+CREATE INDEX IF NOT EXISTS idx_terminals_agent ON terminals(agent_id);
+CREATE INDEX IF NOT EXISTS idx_terminals_status ON terminals(status);
+CREATE INDEX IF NOT EXISTS idx_agent_cards_session ON agent_cards(session_id);
+CREATE INDEX IF NOT EXISTS idx_agent_cards_project ON agent_cards(project_id);
+CREATE INDEX IF NOT EXISTS idx_agent_cards_status ON agent_cards(status);
+CREATE INDEX IF NOT EXISTS idx_a2a_messages_session ON a2a_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_a2a_messages_from ON a2a_messages(from_agent_id);
+CREATE INDEX IF NOT EXISTS idx_a2a_messages_to ON a2a_messages(to_agent_id);
+CREATE INDEX IF NOT EXISTS idx_a2a_messages_status ON a2a_messages(status);
+CREATE INDEX IF NOT EXISTS idx_a2a_messages_correlation ON a2a_messages(correlation_id);

@@ -1,7 +1,17 @@
 export { getDatabase, closeDatabase, resetDatabase } from './database.js';
+export { Migrator } from './migrator.js';
 export { ProjectRepository } from './repositories/project.repository.js';
 export { AgentRepository } from './repositories/agent.repository.js';
 export { TaskRepository } from './repositories/task.repository.js';
 export { EventRepository } from './repositories/event.repository.js';
 export { MemoryRepository } from './repositories/memory.repository.js';
 export { ConversationRepository } from './repositories/conversation.repository.js';
+export { CheckpointRepository } from './repositories/checkpoint.repository.js';
+export { BlackboardRepository } from './repositories/blackboard.repository.js';
+export { EpisodeRepository } from './repositories/episode.repository.js';
+export { TraceRepository } from './repositories/trace.repository.js';
+export { CostRepository } from './repositories/cost.repository.js';
+export { TaskGraphRepository } from './repositories/task-graph.repository.js';
+export { SessionRepository } from './repositories/session.repository.js';
+export { TerminalRepository } from './repositories/terminal.repository.js';
+export { A2ARepository } from './repositories/a2a.repository.js';

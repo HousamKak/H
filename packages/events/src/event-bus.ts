@@ -40,6 +40,7 @@ export class EventBus {
     type: EventType,
     payload: T,
     context?: {
+      sessionId?: string;
       projectId?: string;
       agentId?: string;
       taskId?: string;
@@ -52,6 +53,7 @@ export class EventBus {
       id: generateId(),
       type,
       timestamp: new Date().toISOString(),
+      sessionId: context?.sessionId,
       projectId: context?.projectId,
       agentId: context?.agentId,
       taskId: context?.taskId,
@@ -94,6 +96,9 @@ export class EventBus {
     if (filter?.types?.length) {
       events = events.filter((e) => filter.types!.includes(e.type));
     }
+    if (filter?.sessionId) {
+      events = events.filter((e) => e.sessionId === filter.sessionId);
+    }
     if (filter?.projectId) {
       events = events.filter((e) => e.projectId === filter.projectId);
     }
@@ -131,6 +136,9 @@ export class EventBus {
 
   private matchesFilter(event: HEvent, filter: EventFilter): boolean {
     if (filter.types?.length && !filter.types.includes(event.type)) {
+      return false;
+    }
+    if (filter.sessionId && event.sessionId !== filter.sessionId) {
       return false;
     }
     if (filter.projectId && event.projectId !== filter.projectId) {

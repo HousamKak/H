@@ -32,6 +32,50 @@ export type EventType =
   // Memory events
   | 'memory.stored'
   | 'memory.recalled'
+  // Graph events
+  | 'graph.created'
+  | 'graph.layer.started'
+  | 'graph.layer.completed'
+  | 'graph.completed'
+  | 'graph.failed'
+  // Blackboard events
+  | 'blackboard.updated'
+  // Agent lifecycle events
+  | 'agent.reflecting'
+  | 'agent.checkpoint'
+  | 'agent.context.compacted'
+  // Escalation events
+  | 'escalation.requested'
+  // Cost events
+  | 'cost.recorded'
+  | 'cost.threshold.warning'
+  // Session events
+  | 'session.started'
+  | 'session.paused'
+  | 'session.resumed'
+  | 'session.completed'
+  | 'session.project.added'
+  | 'session.project.removed'
+  // Terminal events
+  | 'terminal.spawned'
+  | 'terminal.output'
+  | 'terminal.exited'
+  | 'terminal.error'
+  // A2A events
+  | 'a2a.message.sent'
+  | 'a2a.message.delivered'
+  | 'a2a.message.read'
+  | 'a2a.agent.registered'
+  | 'a2a.agent.unregistered'
+  // Claude Code events
+  | 'claude_code.spawned'
+  | 'claude_code.output'
+  | 'claude_code.tool_use'
+  | 'claude_code.completed'
+  | 'claude_code.error'
+  // Project link events
+  | 'project.linked'
+  | 'project.unlinked'
   // System events
   | 'system.started'
   | 'system.shutdown'
@@ -41,6 +85,7 @@ export interface HEvent<T = Record<string, unknown>> {
   id: string;
   type: EventType;
   timestamp: string;
+  sessionId?: string;
   projectId?: string;
   agentId?: string;
   taskId?: string;
@@ -58,6 +103,7 @@ export type EventHandler<T = Record<string, unknown>> = (event: HEvent<T>) => vo
 
 export type EventFilter = {
   types?: EventType[];
+  sessionId?: string;
   projectId?: string;
   agentId?: string;
   taskId?: string;

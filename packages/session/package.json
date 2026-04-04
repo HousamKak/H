@@ -1,5 +1,5 @@
 {
-  "name": "@h/orchestrator",
+  "name": "@h/session",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,12 +19,6 @@
   "dependencies": {
     "@h/types": "workspace:*",
     "@h/events": "workspace:*",
-    "@h/db": "workspace:*",
-    "@h/llm": "workspace:*",
-    "@h/agents": "workspace:*",
-    "@h/tasks": "workspace:*",
-    "@h/memory": "workspace:*",
-    "@h/tools": "workspace:*",
-    "@h/session": "workspace:*"
+    "@h/db": "workspace:*"
   }
 }

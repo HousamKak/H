@@ -6,3 +6,6 @@ export * from './tasks.js';
 export * from './memory.js';
 export * from './messages.js';
 export * from './tools.js';
+export * from './sessions.js';
+export * from './terminals.js';
+export * from './a2a.js';

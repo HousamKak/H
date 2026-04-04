@@ -8,12 +8,10 @@ export class CommandParser {
   parse(input: string): ParsedCommand {
     const trimmed = input.trim();
 
-    // Slash commands
     if (trimmed.startsWith('/')) {
       return this.parseSlashCommand(trimmed);
     }
 
-    // Free-text (will be handled as a task or LLM query)
     return { type: 'freetext', args: { text: trimmed }, raw: trimmed };
   }
 
@@ -31,6 +29,18 @@ export class CommandParser {
 
       case 'project':
         return { type: 'project', args: { name: rest || undefined }, raw: input };
+
+      case 'session':
+        return { type: 'session', args: this.parseSessionArgs(parts.slice(1)), raw: input };
+
+      case 'sessions':
+        return { type: 'sessions', args: {}, raw: input };
+
+      case 'add-project':
+        return { type: 'add-project', args: this.parseAddProjectArgs(parts.slice(1)), raw: input };
+
+      case 'link':
+        return { type: 'link', args: this.parseLinkArgs(parts.slice(1)), raw: input };
 
       case 'task':
         return { type: 'task', args: this.parseTaskArgs(rest), raw: input };
@@ -64,10 +74,53 @@ export class CommandParser {
     }
   }
 
+  private parseSessionArgs(parts: string[]): Record<string, any> {
+    if (parts.length === 0) return {};
+    const action = parts[0].toLowerCase();
+    switch (action) {
+      case 'start':
+        return { action: 'start', name: parts.slice(1).join(' ') || undefined };
+      case 'pause':
+        return { action: 'pause' };
+      case 'resume':
+        return { action: 'resume', sessionId: parts[1] };
+      case 'complete':
+      case 'end':
+        return { action: 'complete' };
+      default:
+        return { action: 'info' };
+    }
+  }
+
+  private parseAddProjectArgs(parts: string[]): Record<string, any> {
+    const args: Record<string, any> = {};
+    const filtered = parts.filter(p => {
+      if (p === '--primary') { args.primary = true; return false; }
+      return true;
+    });
+    args.projectId = filtered[0];
+    return args;
+  }
+
+  private parseLinkArgs(parts: string[]): Record<string, any> {
+    const args: Record<string, any> = {};
+    const filtered: string[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i] === '--type' && parts[i + 1]) {
+        args.linkType = parts[i + 1];
+        i++;
+      } else {
+        filtered.push(parts[i]);
+      }
+    }
+    args.sourceId = filtered[0];
+    args.targetId = filtered[1];
+    return args;
+  }
+
   private parseTaskArgs(text: string): Record<string, any> {
     const args: Record<string, any> = { title: text, description: text };
 
-    // Parse priority flag: --priority high, -p critical
     const priorityMatch = text.match(/(?:--priority|-p)\s+(critical|high|medium|low)/i);
     if (priorityMatch) {
       args.priority = priorityMatch[1].toLowerCase();
@@ -75,7 +128,6 @@ export class CommandParser {
       args.description = args.title;
     }
 
-    // Parse role flag: --role coder, -r reviewer
     const roleMatch = text.match(/(?:--role|-r)\s+(coder|reviewer|researcher|architect)/i);
     if (roleMatch) {
       args.role = roleMatch[1].toLowerCase();

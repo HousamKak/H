@@ -1,8 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { api, connectWS, type Project, type AgentInstance, type Task, type HEvent, type QueueSnapshot } from './api.js';
+import {
+  api, connectWS,
+  type Project, type AgentInstance, type Task, type HEvent, type QueueSnapshot,
+  type BlackboardEntry, type TaskGraph, type CostRecord, type CostSummary, type TraceSpan,
+  type Session,
+} from './api.js';
 
 // Poll interval
 const POLL_MS = 3000;
+
+export function useSession() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [sessionProjects, setSessionProjects] = useState<Project[]>([]);
+  const refresh = useCallback(() => {
+    api.sessions.active().then(s => setSession(s)).catch(() => setSession(null));
+    api.sessions.projects().then(setSessionProjects).catch(() => {});
+  }, []);
+  useEffect(() => { refresh(); const t = setInterval(refresh, POLL_MS); return () => clearInterval(t); }, [refresh]);
+  return { session, sessionProjects, refresh };
+}
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -60,6 +76,50 @@ export function useHealth() {
     return () => clearInterval(t);
   }, []);
   return online;
+}
+
+// ---- New hooks for enhanced system ----
+
+export function useBlackboard(projectId?: string) {
+  const [entries, setEntries] = useState<BlackboardEntry[]>([]);
+  const refresh = useCallback(() => {
+    if (!projectId) return;
+    api.blackboard.list(projectId).then(setEntries).catch(() => {});
+  }, [projectId]);
+  useEffect(() => { refresh(); const t = setInterval(refresh, POLL_MS); return () => clearInterval(t); }, [refresh]);
+  return { entries, refresh };
+}
+
+export function useGraphs(projectId?: string) {
+  const [graphs, setGraphs] = useState<TaskGraph[]>([]);
+  const refresh = useCallback(() => {
+    if (!projectId) return;
+    api.graphs.list(projectId).then(setGraphs).catch(() => {});
+  }, [projectId]);
+  useEffect(() => { refresh(); const t = setInterval(refresh, POLL_MS); return () => clearInterval(t); }, [refresh]);
+  return { graphs, refresh };
+}
+
+export function useCosts(projectId?: string) {
+  const [records, setRecords] = useState<CostRecord[]>([]);
+  const [summary, setSummary] = useState<CostSummary | null>(null);
+  const refresh = useCallback(() => {
+    if (!projectId) return;
+    api.costs.list(projectId).then(setRecords).catch(() => {});
+    api.costs.summary(projectId).then(setSummary).catch(() => {});
+  }, [projectId]);
+  useEffect(() => { refresh(); const t = setInterval(refresh, 5000); return () => clearInterval(t); }, [refresh]);
+  return { records, summary, refresh };
+}
+
+export function useTraces(agentId?: string) {
+  const [spans, setSpans] = useState<TraceSpan[]>([]);
+  const refresh = useCallback(() => {
+    if (!agentId) return;
+    api.traces.byAgent(agentId).then(setSpans).catch(() => {});
+  }, [agentId]);
+  useEffect(() => { refresh(); const t = setInterval(refresh, POLL_MS); return () => clearInterval(t); }, [refresh]);
+  return { spans, refresh };
 }
 
 export interface TerminalLine {

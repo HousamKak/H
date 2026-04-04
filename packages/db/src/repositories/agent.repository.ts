@@ -65,11 +65,12 @@ export class AgentRepository {
     const db = getDatabase();
     const id = generateId();
     const now = new Date().toISOString();
+    const runtimeType = input.runtimeType ?? 'internal';
 
     db.prepare(`
-      INSERT INTO agent_instances (id, definition_role, project_id, status, current_task_id, token_budget, turn_count, spawned_at, last_active_at, created_at, updated_at)
-      VALUES (?, ?, ?, 'spawning', ?, ?, 0, ?, ?, ?, ?)
-    `).run(id, input.role, input.projectId, input.taskId ?? null, tokenBudget, now, now, now, now);
+      INSERT INTO agent_instances (id, definition_role, project_id, session_id, runtime_type, status, current_task_id, token_budget, turn_count, spawned_at, last_active_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'spawning', ?, ?, 0, ?, ?, ?, ?)
+    `).run(id, input.role, input.projectId, input.sessionId ?? null, runtimeType, input.taskId ?? null, tokenBudget, now, now, now, now);
 
     return this.findInstance(id)!;
   }
@@ -116,8 +117,12 @@ function toInstance(row: any): AgentInstance {
     id: row.id,
     definitionRole: row.definition_role,
     projectId: row.project_id,
+    sessionId: row.session_id ?? undefined,
     status: row.status,
+    runtimeType: row.runtime_type ?? 'internal',
     currentTaskId: row.current_task_id ?? undefined,
+    terminalId: row.terminal_id ?? undefined,
+    mcpConfigPath: row.mcp_config_path ?? undefined,
     turnCount: row.turn_count,
     tokenBudget: row.token_budget,
     spawnedAt: row.spawned_at,

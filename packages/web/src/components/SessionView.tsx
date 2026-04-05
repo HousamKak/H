@@ -19,6 +19,10 @@ export function SessionView({ currentSession, onRefresh }: Props) {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [newSessionName, setNewSessionName] = useState('');
   const [newSessionFocus, setNewSessionFocus] = useState('');
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [startingSession, setStartingSession] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
 
   const refresh = useCallback(() => {
     api.sessions.list().then(setSessions).catch(() => {});
@@ -37,17 +41,25 @@ export function SessionView({ currentSession, onRefresh }: Props) {
   }, [refresh]);
 
   const handleCreateProject = async () => {
-    if (!newProjectName.trim() || !newProjectPath.trim()) return;
-    await api.projects.create({
-      name: newProjectName.trim(),
-      path: newProjectPath.trim(),
-      description: newProjectDesc.trim() || undefined,
-    });
-    setNewProjectName('');
-    setNewProjectPath('');
-    setNewProjectDesc('');
-    setShowCreateProject(false);
-    refresh();
+    if (!newProjectName.trim() || !newProjectPath.trim() || creatingProject) return;
+    setCreatingProject(true);
+    setProjectError(null);
+    try {
+      await api.projects.create({
+        name: newProjectName.trim(),
+        path: newProjectPath.trim(),
+        description: newProjectDesc.trim() || undefined,
+      });
+      setNewProjectName('');
+      setNewProjectPath('');
+      setNewProjectDesc('');
+      setShowCreateProject(false);
+      refresh();
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreatingProject(false);
+    }
   };
 
   const handleAddProject = async () => {
@@ -67,16 +79,24 @@ export function SessionView({ currentSession, onRefresh }: Props) {
   };
 
   const handleStartSession = async () => {
-    if (!newSessionName.trim()) return;
-    await api.sessions.start({
-      name: newSessionName.trim(),
-      focusDescription: newSessionFocus.trim() || undefined,
-    });
-    setNewSessionName('');
-    setNewSessionFocus('');
-    setShowStartSession(false);
-    refresh();
-    onRefresh();
+    if (!newSessionName.trim() || startingSession) return;
+    setStartingSession(true);
+    setSessionError(null);
+    try {
+      await api.sessions.start({
+        name: newSessionName.trim(),
+        focusDescription: newSessionFocus.trim() || undefined,
+      });
+      setNewSessionName('');
+      setNewSessionFocus('');
+      setShowStartSession(false);
+      refresh();
+      onRefresh();
+    } catch (err) {
+      setSessionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStartingSession(false);
+    }
   };
 
   const handleFocus = async (sessionId: string) => {
@@ -113,9 +133,10 @@ export function SessionView({ currentSession, onRefresh }: Props) {
               <input value={newSessionName} onChange={e => setNewSessionName(e.target.value)} placeholder="Session name..." style={inputStyle} autoFocus />
               <input value={newSessionFocus} onChange={e => setNewSessionFocus(e.target.value)} placeholder="Focus / goal (optional)..." style={inputStyle} />
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={handleStartSession} style={btnStyle}>START SESSION</button>
-                <button onClick={() => setShowStartSession(false)} style={btnDimStyle}>cancel</button>
+                <button onClick={handleStartSession} disabled={startingSession || !newSessionName.trim()} style={{ ...btnStyle, opacity: startingSession || !newSessionName.trim() ? 0.5 : 1, cursor: startingSession || !newSessionName.trim() ? 'not-allowed' : 'pointer' }}>{startingSession ? 'STARTING...' : 'START SESSION'}</button>
+                <button onClick={() => { setShowStartSession(false); setSessionError(null); }} style={btnDimStyle}>cancel</button>
               </div>
+              {sessionError && <div style={{ color: '#ff4444', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, marginTop: 4 }}>! {sessionError}</div>}
             </div>
           ) : (
             <button onClick={() => setShowStartSession(true)} style={{ ...btnStyle, fontSize: 13, padding: '10px 24px' }}>
@@ -187,9 +208,10 @@ export function SessionView({ currentSession, onRefresh }: Props) {
             <input value={newProjectPath} onChange={e => setNewProjectPath(e.target.value)} placeholder="Absolute path (e.g. D:/dev/myapp)..." style={inputStyle} />
             <input value={newProjectDesc} onChange={e => setNewProjectDesc(e.target.value)} placeholder="Description (optional)..." style={inputStyle} />
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={handleCreateProject} style={{ ...btnStyle, color: '#33ccff', background: '#0d1f2f' }}>CREATE PROJECT</button>
-              <button onClick={() => setShowCreateProject(false)} style={btnDimStyle}>cancel</button>
+              <button onClick={handleCreateProject} disabled={creatingProject || !newProjectName.trim() || !newProjectPath.trim()} style={{ ...btnStyle, color: '#33ccff', background: '#0d1f2f', opacity: creatingProject || !newProjectName.trim() || !newProjectPath.trim() ? 0.5 : 1, cursor: creatingProject || !newProjectName.trim() || !newProjectPath.trim() ? 'not-allowed' : 'pointer' }}>{creatingProject ? 'CREATING...' : 'CREATE PROJECT'}</button>
+              <button onClick={() => { setShowCreateProject(false); setProjectError(null); }} style={btnDimStyle}>cancel</button>
             </div>
+            {projectError && <div style={{ color: '#ff4444', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, marginTop: 4 }}>! {projectError}</div>}
           </div>
         ) : (
           <button onClick={() => setShowCreateProject(true)} style={{ ...btnStyle, color: '#33ccff', background: '#0d1f2f' }}>

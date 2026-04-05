@@ -34,7 +34,7 @@ export function WorkspaceView({ sessions, allProjects, focusedSessionId, focused
     }, 500);
   }, []);
 
-  const addTerminal = useCallback(() => {
+  const addTerminal = useCallback((direction: 'row' | 'column') => {
     if (!workspace) return;
     const sessionId = focusedSessionId ?? sessions[0]?.id;
     const projectId = focusedProjectId ?? allProjects[0]?.id;
@@ -61,7 +61,7 @@ export function WorkspaceView({ sessions, allProjects, focusedSessionId, focused
       newLayout = newApplet.id;
     } else {
       newLayout = {
-        direction: 'row',
+        direction,
         first: workspace.layout as RMNode<string>,
         second: newApplet.id,
         splitPercentage: 60,
@@ -117,8 +117,11 @@ export function WorkspaceView({ sessions, allProjects, focusedSessionId, focused
         <span style={{ color: '#33ff33', fontWeight: 'bold' }}>WORKSPACE</span>
         <span style={{ color: '#666' }}>{workspace.applets.length} applet{workspace.applets.length !== 1 ? 's' : ''}</span>
         <div style={{ flex: 1 }} />
-        <button onClick={addTerminal} style={{ background: '#1a3a1a', color: '#33ff33', border: 'none', padding: '4px 12px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
-          + TERMINAL
+        <button onClick={() => addTerminal('row')} title="Add terminal to the right" style={{ background: '#1a3a1a', color: '#33ff33', border: 'none', padding: '4px 12px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+          + TERMINAL →
+        </button>
+        <button onClick={() => addTerminal('column')} title="Add terminal below" style={{ background: '#1a3a1a', color: '#33ff33', border: 'none', padding: '4px 12px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+          + TERMINAL ↓
         </button>
         {hasContent && (
           <button onClick={resetWorkspace} style={{ background: 'none', color: '#aa3333', border: '1px solid #aa3333', padding: '3px 10px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>
@@ -131,7 +134,8 @@ export function WorkspaceView({ sessions, allProjects, focusedSessionId, focused
       <div style={{ flex: 1, position: 'relative' }} className="h-mosaic-root">
         {!hasContent ? (
           <div style={{ padding: 40, color: '#555', fontFamily: 'VT323, monospace', fontSize: 18, textAlign: 'center' }}>
-            Empty workspace. Click + TERMINAL to add your first applet.
+            Empty workspace. Click + TERMINAL → or ↓ to add your first applet.
+            <div style={{ fontSize: 14, color: '#444', marginTop: 8 }}>Drag the split bars to resize. Drag tile titles to rearrange into a 2D grid.</div>
           </div>
         ) : (
           <Mosaic<string>

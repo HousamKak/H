@@ -13,13 +13,23 @@ interface SessionBarProps {
 export function SessionBar({ focusedSession, activeSessions, sessionProjects, currentProjectId, onProjectSelect, onRefresh }: SessionBarProps) {
   const [showStartForm, setShowStartForm] = useState(false);
   const [newSessionName, setNewSessionName] = useState('');
+  const [startError, setStartError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const handleStart = async () => {
-    if (!newSessionName.trim()) return;
-    await api.sessions.start({ name: newSessionName.trim() });
-    setNewSessionName('');
-    setShowStartForm(false);
-    onRefresh();
+    if (!newSessionName.trim() || starting) return;
+    setStarting(true);
+    setStartError(null);
+    try {
+      await api.sessions.start({ name: newSessionName.trim() });
+      setNewSessionName('');
+      setShowStartForm(false);
+      onRefresh();
+    } catch (err) {
+      setStartError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStarting(false);
+    }
   };
 
   const handleFocus = async (sessionId: string) => {
@@ -80,8 +90,9 @@ export function SessionBar({ focusedSession, activeSessions, sessionProjects, cu
               style={{ background: '#0d1f0d', border: '1px solid #1a3a1a', color: '#33ff33', padding: '3px 8px', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, width: 140 }}
               autoFocus
             />
-            <button onClick={handleStart} style={{ background: '#1a3a1a', color: '#33ff33', border: 'none', padding: '3px 8px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>OK</button>
-            <button onClick={() => setShowStartForm(false)} style={{ background: 'none', color: '#666', border: 'none', cursor: 'pointer', fontSize: 10 }}>x</button>
+            <button onClick={handleStart} disabled={starting || !newSessionName.trim()} style={{ background: '#1a3a1a', color: '#33ff33', border: 'none', padding: '3px 8px', cursor: starting || !newSessionName.trim() ? 'not-allowed' : 'pointer', opacity: starting || !newSessionName.trim() ? 0.5 : 1, fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>{starting ? '...' : 'OK'}</button>
+            <button onClick={() => { setShowStartForm(false); setStartError(null); }} style={{ background: 'none', color: '#666', border: 'none', cursor: 'pointer', fontSize: 10 }}>x</button>
+            {startError && <span title={startError} style={{ color: '#ff4444', fontFamily: 'JetBrains Mono, monospace', fontSize: 10, marginLeft: 6, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>! {startError}</span>}
           </div>
         ) : (
           <button

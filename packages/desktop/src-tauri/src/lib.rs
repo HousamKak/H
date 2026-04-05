@@ -348,9 +348,15 @@ pub fn run() {
             pty_list,
         ])
         .setup(|app| {
-            // Spawn the H backend now that we have access to paths
+            // Spawn the H backend now that we have access to paths.
+            // If spawn fails, don't panic — leave the window open so the user
+            // sees the API connection errors instead of a silent crash.
             let child = spawn_api_server(&app.handle());
-            app.state::<ApiServer>().0.lock().unwrap().replace(child.expect("backend failed to start"));
+            if let Some(c) = child {
+                app.state::<ApiServer>().0.lock().unwrap().replace(c);
+            } else {
+                eprintln!("[H Desktop] WARNING: Backend failed to start. UI will open but API calls will fail.");
+            }
 
             // Check for updates in the background on startup
             let handle = app.handle().clone();
@@ -375,9 +381,13 @@ pub fn run() {
                 .item(&quit)
                 .build()?;
 
-            TrayIconBuilder::new()
+            let mut tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("H — AI Coding Orchestrator")
+                .tooltip("H — AI Coding Orchestrator");
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+            tray_builder
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "show" => {
                         if let Some(w) = app.get_webview_window("main") {

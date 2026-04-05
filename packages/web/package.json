@@ -16,7 +16,6 @@
     "@xyflow/react": "^12.10.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-mosaic-component": "7.0.0-beta0",
     "recharts": "^3.8.1"
   },
   "devDependencies": {

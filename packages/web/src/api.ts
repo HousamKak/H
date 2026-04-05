@@ -98,14 +98,21 @@ export interface A2AMessage {
   createdAt: string;
 }
 
-export type MosaicNode =
-  | string
-  | { direction: 'row' | 'column'; first: MosaicNode; second: MosaicNode; splitPercentage?: number };
+// Canvas viewport: pan + zoom. Stored in the workspace.layout field (opaque JSON on backend).
+export interface CanvasViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
 
 export interface Applet {
   id: string;
   type: 'terminal';
   title?: string;
+  // Canvas placement (defaults applied when absent)
+  position?: { x: number; y: number };
+  width?: number;
+  height?: number;
   config: {
     sessionId: string;
     projectId: string;
@@ -119,7 +126,8 @@ export interface Applet {
 
 export interface Workspace {
   id: string;
-  layout: MosaicNode | null;
+  // Repurposed: now holds CanvasViewport { x, y, zoom } for the infinite canvas.
+  layout: CanvasViewport | null;
   applets: Applet[];
   updatedAt: string;
 }
@@ -298,7 +306,7 @@ export const api = {
   },
   workspace: {
     get: () => fetchJSON<Workspace>('/workspace'),
-    update: (layout: MosaicNode | null, applets: Applet[]) =>
+    update: (layout: CanvasViewport | null, applets: Applet[]) =>
       fetchJSON<Workspace>('/workspace', { method: 'PUT', body: JSON.stringify({ layout, applets }) }),
     reset: () => fetchJSON<{ ok: boolean }>('/workspace/reset', { method: 'POST' }),
   },

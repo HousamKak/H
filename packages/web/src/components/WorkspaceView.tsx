@@ -121,7 +121,10 @@ function toNodes(
       type: 'applet',
       position: a.position ?? { x: 40 + i * 40, y: 40 + i * 40 },
       data: { applet: a, sessions, allProjects, onUpdate, onClose },
-      // NodeResizer updates node.style.width/height; React Flow mirrors to node.width/height.
+      // Top-level dimensions so React Flow skips the "measurement pending" phase
+      // (otherwise the node renders with visibility:hidden until the ResizeObserver fires).
+      width,
+      height,
       style: { width, height },
       dragHandle: '.applet-drag-handle',
     };
@@ -135,7 +138,7 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appletsRef = useRef<Applet[]>([]);
   const viewportRef = useRef<CanvasViewport>(DEFAULT_VIEWPORT);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getNodes } = useReactFlow();
 
   // Keep appletsRef current (avoid stale closures in keyboard/context handlers)
   appletsRef.current = workspace?.applets ?? [];
@@ -182,39 +185,51 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
     setNodes(toNodes(workspace.applets, sessions, allProjects, updateApplet, removeApplet));
   }, [workspace?.applets, sessions, allProjects, updateApplet, removeApplet, setNodes]);
 
-  // Handle node position/dimension changes — persist when drag/resize ends
+  // Handle node position/dimension changes — persist when drag/resize ends.
+  // IMPORTANT: only update workspace state when something actually changed,
+  // otherwise we create an infinite loop: setWorkspace → new ref → useEffect
+  // → setNodes → React Flow remeasures → handleNodesChange → ...
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     onNodesChange(changes);
 
-    // Detect drag-end or resize-end → update applet positions/sizes and save
     const hasPositionEnd = changes.some(c => c.type === 'position' && c.dragging === false);
     const hasDimensions = changes.some(c => c.type === 'dimensions');
     if (!hasPositionEnd && !hasDimensions) return;
 
+    // Read current positions/sizes from React Flow's node state
+    const posMap = new Map<string, { position: { x: number; y: number }; width?: number; height?: number }>();
+    for (const n of getNodes()) {
+      const styleAny = n.style as { width?: number; height?: number } | undefined;
+      posMap.set(n.id, {
+        position: n.position,
+        width: (n.width ?? styleAny?.width) as number | undefined,
+        height: (n.height ?? styleAny?.height) as number | undefined,
+      });
+    }
+
     setWorkspace(ws => {
       if (!ws) return ws;
-      // Read positions/sizes back from the node state
-      const posMap = new Map<string, { position: { x: number; y: number }; width?: number; height?: number }>();
-      setNodes(currentNodes => {
-        for (const n of currentNodes) {
-          posMap.set(n.id, {
-            position: n.position,
-            width: (n.width ?? (n.style as any)?.width) as number | undefined,
-            height: (n.height ?? (n.style as any)?.height) as number | undefined,
-          });
-        }
-        return currentNodes;
-      });
+      let changed = false;
       const nextApplets = ws.applets.map(a => {
         const p = posMap.get(a.id);
         if (!p) return a;
-        return { ...a, position: p.position, width: p.width ?? a.width, height: p.height ?? a.height };
+        const newPos = p.position;
+        const newW = p.width ?? a.width;
+        const newH = p.height ?? a.height;
+        if (
+          a.position?.x === newPos.x && a.position?.y === newPos.y &&
+          a.width === newW && a.height === newH
+        ) {
+          return a;
+        }
+        changed = true;
+        return { ...a, position: newPos, width: newW, height: newH };
       });
-      const next = { ...ws, applets: nextApplets };
+      if (!changed) return ws; // no-op: break the re-render loop
       scheduleSave(nextApplets, viewportRef.current);
-      return next;
+      return { ...ws, applets: nextApplets };
     });
-  }, [onNodesChange, setNodes, scheduleSave]);
+  }, [onNodesChange, getNodes, scheduleSave]);
 
   // Track viewport (pan/zoom) and persist
   const handleMoveEnd = useCallback((_: unknown, viewport: Viewport) => {

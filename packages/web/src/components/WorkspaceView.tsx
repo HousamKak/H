@@ -72,7 +72,9 @@ function AppletNode({ data, selected }: { data: AppletNodeData; selected: boolea
         }}
         title="Drag to move"
       />
-      <div style={{ flex: 1, minHeight: 0 }}>
+      {/* nodrag: React Flow would otherwise swallow pointerdown and prevent xterm from focusing.
+          nowheel: let the terminal scroll its own buffer instead of zooming the canvas. */}
+      <div className="nodrag nowheel" style={{ flex: 1, minHeight: 0 }}>
         <TerminalApplet
           applet={applet}
           sessions={sessions}
@@ -336,6 +338,9 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
           nodesDraggable
           nodesConnectable={false}
           elementsSelectable
+          deleteKeyCode={null}
+          selectionKeyCode={null}
+          multiSelectionKeyCode="Shift"
           proOptions={{ hideAttribution: true }}
           style={{ background: '#050805' }}
         >

@@ -1,6 +1,6 @@
 [package]
 name = "h-desktop"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "H — Personal AI Coding Orchestrator (Desktop)"
 
@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "devtools"] }
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"

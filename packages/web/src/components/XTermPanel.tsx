@@ -186,7 +186,10 @@ export function XTermPanel({ mode = 'websocket', terminalId, ptyId, command, arg
   }, [mode, ptyId, command]);
 
   return (
-    <div style={{ height: '100%', width: '100%', position: 'relative', background: '#0a0f0a' }}>
+    <div
+      style={{ height: '100%', width: '100%', position: 'relative', background: '#0a0f0a' }}
+      onClick={() => xtermRef.current?.focus()}
+    >
       {status && (
         <div style={{
           position: 'absolute', top: 2, right: 6, zIndex: 10,

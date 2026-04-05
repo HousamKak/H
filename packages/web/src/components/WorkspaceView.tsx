@@ -6,9 +6,9 @@ import {
   BackgroundVariant,
   Controls,
   MiniMap,
+  NodeResizer,
   useReactFlow,
   useNodesState,
-  applyNodeChanges,
   type Node,
   type NodeChange,
   type NodeTypes,
@@ -58,8 +58,17 @@ function AppletNode({ data, selected }: { data: AppletNodeData; selected: boolea
         flexDirection: 'column',
         overflow: 'hidden',
         borderRadius: 2,
+        position: 'relative',
       }}
     >
+      {/* React Flow resize handles — visible only when the node is selected. */}
+      <NodeResizer
+        isVisible={selected}
+        minWidth={280}
+        minHeight={160}
+        lineStyle={{ borderColor: '#33ff33' }}
+        handleStyle={{ background: '#33ff33', width: 8, height: 8, border: 'none', borderRadius: 0 }}
+      />
       {/* Drag handle strip above TerminalApplet's own header */}
       <div
         className="applet-drag-handle"
@@ -72,9 +81,17 @@ function AppletNode({ data, selected }: { data: AppletNodeData; selected: boolea
         }}
         title="Drag to move"
       />
-      {/* nodrag: React Flow would otherwise swallow pointerdown and prevent xterm from focusing.
-          nowheel: let the terminal scroll its own buffer instead of zooming the canvas. */}
-      <div className="nodrag nowheel" style={{ flex: 1, minHeight: 0 }}>
+      {/* nodrag/nowheel/nopan: React Flow classes that tell its handlers to leave this subtree alone,
+          so xterm can focus its hidden textarea and the terminal can scroll its own buffer.
+          stopPropagation: extra safety — even if React Flow's listeners see the event, don't let
+          them act on it (prevents focus-stealing and selection changes). */}
+      <div
+        className="nodrag nowheel nopan"
+        style={{ flex: 1, minHeight: 0 }}
+        onPointerDown={e => e.stopPropagation()}
+        onMouseDown={e => e.stopPropagation()}
+        onWheel={e => e.stopPropagation()}
+      >
         <TerminalApplet
           applet={applet}
           sessions={sessions}
@@ -83,19 +100,6 @@ function AppletNode({ data, selected }: { data: AppletNodeData; selected: boolea
           onClose={() => onClose(applet.id)}
         />
       </div>
-      {/* Resize grip in bottom-right (manual — NodeResizer shows only when selected but causes layout jumps) */}
-      <div
-        style={{
-          position: 'absolute',
-          right: 0,
-          bottom: 0,
-          width: 14,
-          height: 14,
-          cursor: 'nwse-resize',
-          background: 'linear-gradient(135deg, transparent 50%, #1a3a1a 50%)',
-          pointerEvents: 'none', // React Flow handles resize via nodesDraggable; we visually mark it
-        }}
-      />
     </div>
   );
 }
@@ -109,16 +113,19 @@ function toNodes(
   onUpdate: (a: Applet) => void,
   onClose: (id: string) => void,
 ): Node<AppletNodeData>[] {
-  return applets.map((a, i) => ({
-    id: a.id,
-    type: 'applet',
-    position: a.position ?? { x: 40 + i * 40, y: 40 + i * 40 },
-    data: { applet: a, sessions, allProjects, onUpdate, onClose },
-    width: a.width ?? DEFAULT_SIZE.width,
-    height: a.height ?? DEFAULT_SIZE.height,
-    dragHandle: '.applet-drag-handle',
-    style: { width: a.width ?? DEFAULT_SIZE.width, height: a.height ?? DEFAULT_SIZE.height },
-  }));
+  return applets.map((a, i) => {
+    const width = a.width ?? DEFAULT_SIZE.width;
+    const height = a.height ?? DEFAULT_SIZE.height;
+    return {
+      id: a.id,
+      type: 'applet',
+      position: a.position ?? { x: 40 + i * 40, y: 40 + i * 40 },
+      data: { applet: a, sessions, allProjects, onUpdate, onClose },
+      // NodeResizer updates node.style.width/height; React Flow mirrors to node.width/height.
+      style: { width, height },
+      dragHandle: '.applet-drag-handle',
+    };
+  });
 }
 
 function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProjectId }: Props) {

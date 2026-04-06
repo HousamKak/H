@@ -399,18 +399,29 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
 
   // Add a new terminal applet at a given canvas position
   const spawnTerminalAt = useCallback((flowX: number, flowY: number, parentId?: string, kind: 'shell' | 'claude' | 'super_claude' = 'shell') => {
-    const sessionId = focusedSessionId ?? sessions[0]?.id;
+    let sessionId = focusedSessionId ?? sessions[0]?.id;
     const projectId = focusedProjectId ?? allProjects[0]?.id;
+
+    // If spawning inside a session container, inherit that session's ID
+    if (parentId) {
+      const parentApplet = appletsRef.current.find(a => a.id === parentId);
+      if (parentApplet?.type === 'session') {
+        sessionId = (parentApplet.config as SessionAppletConfig).sessionId;
+      }
+    }
+
     if (!sessionId || !projectId) {
       alert('Create a session and project first.');
       return;
     }
     const project = allProjects.find(p => p.id === projectId);
+    // Offset child terminals inside session so they don't stack
+    const childCount = parentId ? appletsRef.current.filter(a => a.parentId === parentId).length : 0;
     const newApplet: Applet = {
       id: generateId(),
       type: 'terminal',
       title: kind === 'claude' ? 'Claude' : kind === 'super_claude' ? 'Super Claude' : 'Terminal',
-      position: { x: parentId ? 30 : flowX, y: parentId ? 50 : flowY },
+      position: { x: parentId ? 30 + childCount * 30 : flowX, y: parentId ? 50 + childCount * 30 : flowY },
       width: DEFAULT_SIZE.width,
       height: DEFAULT_SIZE.height,
       parentId,
@@ -540,11 +551,11 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
           defaultViewport={defaultViewport}
           minZoom={0.2}
           maxZoom={2}
-          panOnDrag={[1, 2]}
+          panOnDrag={[1]}
           panOnScroll={false}
-          zoomOnScroll={false}
+          zoomOnScroll={true}
           zoomOnPinch={true}
-          selectionOnDrag
+          selectionOnDrag={false}
           selectNodesOnDrag={false}
           nodesDraggable
           nodesConnectable={false}

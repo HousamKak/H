@@ -97,11 +97,33 @@ execSync('npm install --no-package-lock --no-audit --no-fund', {
   env: bundleEnv,
 });
 
+// Bundle MCP stdio-entry as a separate CJS file (Claude Code spawns it as a subprocess)
+const MCP_ENTRY_OUT = join(BACKEND_OUT_DIR, 'h-mcp-stdio.cjs');
+console.log('[bundle] Bundling MCP stdio entry...');
+await build({
+  entryPoints: [join(REPO_ROOT, 'packages', 'mcp', 'dist', 'stdio-entry.js')],
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'cjs',
+  outfile: MCP_ENTRY_OUT,
+  external: ['better-sqlite3'],
+  packages: 'bundle',
+  logLevel: 'info',
+  minify: false,
+  sourcemap: false,
+});
+console.log(`[bundle] MCP entry: ${(statSync(MCP_ENTRY_OUT).size / 1024).toFixed(1)} KB`);
+
 // Strip shebang that esbuild may have preserved from the entry
 console.log('[bundle] Post-processing (strip shebang)...');
 let bundleSrc = await readFile(OUT_FILE, 'utf-8');
 bundleSrc = bundleSrc.replace(/^#!.*?\n/m, '');
 await writeFile(OUT_FILE, bundleSrc);
+
+let mcpSrc = await readFile(MCP_ENTRY_OUT, 'utf-8');
+mcpSrc = mcpSrc.replace(/^#!.*?\n/m, '');
+await writeFile(MCP_ENTRY_OUT, mcpSrc);
 
 console.log('[bundle] Backend bundle complete.');
 

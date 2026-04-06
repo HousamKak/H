@@ -6,6 +6,7 @@ import { Orchestrator } from '@h/orchestrator';
 import type { HEvent } from '@h/types';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import { TaskGraphRepository, TraceRepository, EpisodeRepository, CheckpointRepository, WorkspaceRepository } from '@h/db';
 import { McpConfigGenerator } from '@h/mcp';
 
@@ -543,14 +544,25 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
   // MCP config generator for Claude terminals — gives Claude access to H's state
   const mcpConfigDir = process.env.H_MCP_CONFIG_DIR ?? resolve('./data/mcp-configs');
   const mcpConfigGen = new McpConfigGenerator(mcpConfigDir);
-  // Locate the compiled MCP stdio entry point
+
+  // Locate the MCP stdio entry point.
+  // In dev: packages/mcp/dist/stdio-entry.js (relative to repo root)
+  // In desktop bundle: resources/backend/h-mcp-stdio.cjs (next to h-backend.cjs)
   const mcpEntryPath = (() => {
+    // Bundled desktop: h-mcp-stdio.cjs lives next to h-backend.cjs
+    // __filename is defined in CJS bundles, __dirname for the dir
+    const bundledPath = typeof __dirname !== 'undefined'
+      ? resolve(__dirname, 'h-mcp-stdio.cjs')
+      : undefined;
+    if (bundledPath && existsSync(bundledPath)) return bundledPath;
+
+    // Dev mode: resolve from repo structure
     try {
-      const mcpPkg = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'mcp', 'dist', 'stdio-entry.js');
-      return mcpPkg;
-    } catch {
-      return resolve('./packages/mcp/dist/stdio-entry.js');
-    }
+      const devPath = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'mcp', 'dist', 'stdio-entry.js');
+      if (existsSync(devPath)) return devPath;
+    } catch { /* import.meta.url may be undefined in CJS */ }
+
+    return resolve('./packages/mcp/dist/stdio-entry.js');
   })();
 
   app.post('/api/terminals/spawn', async (req, res) => {

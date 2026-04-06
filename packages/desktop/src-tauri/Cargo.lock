@@ -1522,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "h-desktop"
-version = "0.2.2"
+version = "0.2.201"
 dependencies = [
  "chrono",
  "portable-pty",

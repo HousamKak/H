@@ -341,6 +341,23 @@ async fn check_for_updates(
                 update.current_version, update.version
             );
             // Download and install (Tauri's built-in dialog asks the user first)
+            // Kill the backend sidecar BEFORE the installer runs,
+            // otherwise NSIS can't overwrite locked .node/.dll files.
+            {
+                let api_state = app.state::<ApiServer>();
+                let mut guard = api_state.0.lock().unwrap();
+                if let Some(ref mut child) = *guard {
+                    log_to_file(&app, "Killing backend before update install...");
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                *guard = None;
+
+                let pty_state = app.state::<PtyManager>();
+                let mut ptys = pty_state.0.lock().unwrap();
+                ptys.clear();
+            }
+
             let mut downloaded = 0usize;
             update
                 .download_and_install(

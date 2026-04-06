@@ -214,7 +214,8 @@ function toNodes(
     };
     if (a.parentId) {
       node.parentId = a.parentId;
-      node.extent = 'parent';
+      // No extent constraint — terminals can be dragged freely within the session.
+      // expandParent auto-grows the session if a terminal is near the edge.
       node.expandParent = true;
     }
     nodes.push(node);
@@ -323,6 +324,72 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
       return { ...ws, applets: nextApplets };
     });
   }, [onNodesChange, getNodes, scheduleSave]);
+
+  // Detect when a terminal is dragged into or out of a session container
+  const handleNodeDragStop = useCallback((_event: React.MouseEvent, draggedNode: Node) => {
+    // Only care about terminal applets (not sessions)
+    if (draggedNode.type !== 'applet') return;
+
+    const allNodes = getNodes();
+    const sessionNodes = allNodes.filter(n => n.type === 'session');
+    if (sessionNodes.length === 0) return;
+
+    // Get the dragged node's absolute position
+    const dragPos = draggedNode.position;
+    const dragW = (draggedNode.measured?.width ?? draggedNode.width ?? DEFAULT_SIZE.width) as number;
+    const dragH = (draggedNode.measured?.height ?? draggedNode.height ?? DEFAULT_SIZE.height) as number;
+    const dragCenterX = dragPos.x + dragW / 2;
+    const dragCenterY = dragPos.y + dragH / 2;
+
+    // Find which session the center of this terminal falls inside
+    let targetSessionId: string | undefined;
+    for (const sn of sessionNodes) {
+      const sw = (sn.measured?.width ?? sn.width ?? SESSION_SIZE.width) as number;
+      const sh = (sn.measured?.height ?? sn.height ?? SESSION_SIZE.height) as number;
+      // If terminal has a parent, its position is relative to parent
+      const absDragX = draggedNode.parentId === sn.id ? sn.position.x + dragPos.x : dragPos.x;
+      const absDragY = draggedNode.parentId === sn.id ? sn.position.y + dragPos.y : dragPos.y;
+      const cx = draggedNode.parentId === sn.id ? sn.position.x + dragCenterX : dragCenterX;
+      const cy = draggedNode.parentId === sn.id ? sn.position.y + dragCenterY : dragCenterY;
+
+      if (cx >= sn.position.x && cx <= sn.position.x + sw &&
+          cy >= sn.position.y && cy <= sn.position.y + sh) {
+        targetSessionId = sn.id;
+        break;
+      }
+    }
+
+    setWorkspace(ws => {
+      if (!ws) return ws;
+      const applet = ws.applets.find(a => a.id === draggedNode.id);
+      if (!applet || applet.type !== 'terminal') return ws;
+
+      const currentParent = applet.parentId;
+
+      if (targetSessionId && currentParent !== targetSessionId) {
+        // Moving INTO a session — convert position to relative
+        const sn = sessionNodes.find(n => n.id === targetSessionId)!;
+        const relX = dragPos.x - sn.position.x;
+        const relY = dragPos.y - sn.position.y;
+        const updated = { ...applet, parentId: targetSessionId, position: { x: Math.max(10, relX), y: Math.max(40, relY) } };
+        const nextApplets = ws.applets.map(a => a.id === applet.id ? updated : a);
+        scheduleSave(nextApplets, viewportRef.current);
+        return { ...ws, applets: nextApplets };
+      } else if (!targetSessionId && currentParent) {
+        // Moving OUT of a session — ask first
+        if (!confirm('Move this terminal out of the session?')) return ws;
+        const sn = sessionNodes.find(n => n.id === currentParent);
+        const absX = sn ? sn.position.x + dragPos.x : dragPos.x;
+        const absY = sn ? sn.position.y + dragPos.y : dragPos.y;
+        const updated = { ...applet, parentId: undefined, position: { x: absX, y: absY } };
+        const nextApplets = ws.applets.map(a => a.id === applet.id ? updated : a);
+        scheduleSave(nextApplets, viewportRef.current);
+        return { ...ws, applets: nextApplets };
+      }
+
+      return ws;
+    });
+  }, [getNodes, scheduleSave]);
 
   // Track viewport (pan/zoom) and persist
   const handleMoveEnd = useCallback((_: unknown, viewport: Viewport) => {
@@ -468,6 +535,7 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
           onNodesChange={handleNodesChange}
           nodeTypes={nodeTypes}
           onMoveEnd={handleMoveEnd}
+          onNodeDragStop={handleNodeDragStop}
           onPaneContextMenu={onPaneContextMenu}
           defaultViewport={defaultViewport}
           minZoom={0.2}

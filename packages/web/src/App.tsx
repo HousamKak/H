@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar.js';
 import { SessionBar } from './components/SessionBar.js';
 import { Dashboard } from './components/Dashboard.js';
 import { Terminal } from './components/Terminal.js';
+import { ClaudeTerminal } from './components/ClaudeTerminal.js';
 import { AgentsView } from './components/AgentsView.js';
 import { TasksView } from './components/TasksView.js';
 import { EventLog } from './components/EventLog.js';
@@ -60,7 +61,7 @@ export function App() {
           focusedProjectId={currentProjectId}
         />;
       case 'terminal':
-        return <Terminal lines={lines} onSend={sendCommand} events={events} />;
+        return <ClaudeTerminal sessionId={session?.id} projectId={currentProjectId} allProjects={projects} />;
       case 'agents':
         return <AgentsView agents={agents} projectId={currentProjectId} onRefresh={refreshAgents} />;
       case 'tasks':

@@ -79,9 +79,19 @@ export class PtyHandle extends EventEmitter {
     // Give the shell something sane to advertise — xterm.js is compatible with xterm-256color.
     env.TERM = env.TERM ?? 'xterm-256color';
 
+    // On Windows, node-pty can't spawn .cmd/.bat scripts directly (e.g. `claude`
+    // is installed as `claude.cmd`). Wrap through cmd.exe /c so Windows resolves
+    // the command via PATHEXT the same way a shell would.
+    let command = this.options.command;
+    let args = this.options.args ?? [];
+    if (process.platform === 'win32' && !command.match(/\.(exe|com)$/i)) {
+      args = ['/c', command, ...args];
+      command = 'cmd.exe';
+    }
+
     this.pty = pty.spawn(
-      this.options.command,
-      this.options.args ?? [],
+      command,
+      args,
       {
         name: 'xterm-256color',
         cols: this.options.cols ?? 80,

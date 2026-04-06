@@ -15,6 +15,18 @@ use tauri::{
 
 struct ApiServer(Mutex<Option<Child>>);
 
+/// Strip the Windows extended-length path prefix (`\\?\`) that Tauri's
+/// resource_dir() returns. Node.js cannot resolve modules from paths that
+/// start with this prefix — it mis-parses `\\?\D:\…` and fails with EISDIR.
+fn strip_unc(p: std::path::PathBuf) -> std::path::PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        std::path::PathBuf::from(stripped)
+    } else {
+        p
+    }
+}
+
 fn log_to_file(app: &tauri::AppHandle, msg: &str) {
     if let Ok(app_data) = app.path().app_data_dir() {
         let log_path = app_data.join("h-desktop.log");
@@ -38,17 +50,18 @@ fn spawn_api_server(app: &tauri::AppHandle) -> Option<Child> {
             .spawn()
     } else {
         // Production: spawn bundled node sidecar with bundled backend.cjs
-        let resource_dir = app
+        // Strip \\?\ prefix — Node.js chokes on extended-length paths.
+        let resource_dir = strip_unc(app
             .path()
             .resource_dir()
-            .expect("resource dir");
+            .expect("resource dir"));
         let backend_dir = resource_dir.join("resources").join("backend");
         let backend_js = backend_dir.join("h-backend.cjs");
         let schema_sql = backend_dir.join("schema.sql");
         let schemas_dir = backend_dir.join("schemas");
 
         // Writable dirs in app data
-        let app_data = app.path().app_data_dir().expect("app data dir");
+        let app_data = strip_unc(app.path().app_data_dir().expect("app data dir"));
         let data_dir = app_data.join("data");
         let mcp_configs_dir = data_dir.join("mcp-configs");
         std::fs::create_dir_all(&data_dir).ok();

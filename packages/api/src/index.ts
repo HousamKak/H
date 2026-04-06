@@ -4,8 +4,10 @@ import { WebSocketServer } from 'ws';
 import { createServer } from 'node:http';
 import { Orchestrator } from '@h/orchestrator';
 import type { HEvent } from '@h/types';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { TaskGraphRepository, TraceRepository, EpisodeRepository, CheckpointRepository, WorkspaceRepository } from '@h/db';
+import { McpConfigGenerator } from '@h/mcp';
 
 export async function startApiServer(orchestrator: Orchestrator, port?: number): Promise<void> {
   const app = express();
@@ -538,18 +540,54 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
     }
   });
 
+  // MCP config generator for Claude terminals — gives Claude access to H's state
+  const mcpConfigDir = process.env.H_MCP_CONFIG_DIR ?? resolve('./data/mcp-configs');
+  const mcpConfigGen = new McpConfigGenerator(mcpConfigDir);
+  // Locate the compiled MCP stdio entry point
+  const mcpEntryPath = (() => {
+    try {
+      const mcpPkg = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'mcp', 'dist', 'stdio-entry.js');
+      return mcpPkg;
+    } catch {
+      return resolve('./packages/mcp/dist/stdio-entry.js');
+    }
+  })();
+
   app.post('/api/terminals/spawn', async (req, res) => {
     try {
-      const { sessionId, projectId, agentId, name, type, command, args, cwd, env } = req.body;
+      const { sessionId, projectId, agentId, name, type, command, args: rawArgs, cwd, env } = req.body;
       if (!sessionId || !projectId || !command || !cwd) {
         return res.status(400).json({ error: 'sessionId, projectId, command, cwd are required' });
       }
+
+      let finalArgs: string[] = rawArgs ?? [];
+
+      // Auto-inject MCP config for Claude terminals so Claude can access H's system state
+      const isClaude = command === 'claude' || command.endsWith('/claude') || command.endsWith('\\claude');
+      if (isClaude) {
+        try {
+          const termId = `term-${Date.now().toString(36)}`;
+          const dbPath = process.env.H_DB_PATH ?? resolve('./data/h.db');
+          const configPath = mcpConfigGen.generate({
+            agentId: termId,
+            sessionId,
+            projectId,
+            dbPath,
+            mcpEntryPath,
+          });
+          // Only inject if --mcp-config isn't already provided
+          if (!finalArgs.includes('--mcp-config')) {
+            finalArgs = [...finalArgs, '--mcp-config', configPath];
+          }
+        } catch { /* MCP config generation failed — spawn without it */ }
+      }
+
       const terminal = await orchestrator.terminals.spawn({
         sessionId, projectId, agentId,
         name: name ?? command,
         type: type ?? 'shell',
         command,
-        args: args ?? [],
+        args: finalArgs,
         cwd,
         env: env ?? {},
       });

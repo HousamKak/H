@@ -1,10 +1,10 @@
 import { getDatabase } from '../database.js';
-import type { Workspace, UpdateWorkspaceInput, Applet, MosaicNode } from '@h/types';
+import type { Workspace, UpdateWorkspaceInput, Applet, CanvasViewport } from '@h/types';
 
 function toWorkspace(row: any): Workspace {
   return {
     id: row.id,
-    layout: row.layout_json && row.layout_json !== '{}' ? JSON.parse(row.layout_json) as MosaicNode : null,
+    layout: row.layout_json && row.layout_json !== '{}' ? JSON.parse(row.layout_json) as CanvasViewport : null,
     applets: JSON.parse(row.applets_json || '[]') as Applet[],
     updatedAt: row.updated_at,
   };

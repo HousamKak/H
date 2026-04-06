@@ -22,6 +22,7 @@
     "@h/events": "workspace:*",
     "@h/db": "workspace:*",
     "@h/orchestrator": "workspace:*",
+    "@h/mcp": "workspace:*",
     "express": "^4.21.0",
     "cors": "^2.8.5",
     "ws": "^8.18.0",

@@ -69,12 +69,17 @@ export function XTermPanel({ mode = 'websocket', terminalId, ptyId, command, arg
     term.loadAddon(new WebLinksAddon());
     term.open(containerRef.current);
     setTimeout(() => fitAddon.fit(), 50);
+    setTimeout(() => fitAddon.fit(), 200);
 
     xtermRef.current = term;
     fitRef.current = fitAddon;
 
+    let resizeTimer: ReturnType<typeof setTimeout>;
     const resizeObserver = new ResizeObserver(() => {
-      try { fitAddon.fit(); } catch {}
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        try { fitAddon.fit(); } catch {}
+      }, 16);
     });
     resizeObserver.observe(containerRef.current);
 

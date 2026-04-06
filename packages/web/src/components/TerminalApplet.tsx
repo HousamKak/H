@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { api, type Applet, type Session, type Project } from '../api.js';
+import { useState } from 'react';
+import { api, type Applet, type Session, type Project, type TerminalAppletConfig, type ShellType } from '../api.js';
 import { XTermPanel } from './XTermPanel.js';
 
 interface Props {
@@ -10,37 +10,51 @@ interface Props {
   onClose: () => void;
 }
 
+const SHELL_COMMANDS: Record<ShellType, { command: string; args: string[] }> = {
+  cmd: { command: 'cmd.exe', args: [] },
+  powershell: { command: 'powershell.exe', args: [] },
+  pwsh: { command: 'pwsh.exe', args: [] },
+  bash: { command: 'bash', args: [] },
+  'git-bash': { command: 'C:/Program Files/Git/bin/bash.exe', args: [] },
+  wsl: { command: 'wsl.exe', args: [] },
+};
+
+const isWindows = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('win');
+const DEFAULT_SHELL: ShellType = isWindows ? 'powershell' : 'bash';
+
 export function TerminalApplet({ applet, sessions, allProjects, onUpdate, onClose }: Props) {
-  const [terminalId, setTerminalId] = useState<string | undefined>(applet.config.terminalId);
+  const cfg = applet.config as TerminalAppletConfig;
+  const [terminalId, setTerminalId] = useState<string | undefined>(cfg.terminalId);
   const [status, setStatus] = useState<'idle' | 'spawning' | 'running' | 'exited' | 'error'>(
-    applet.config.terminalId ? 'running' : 'idle',
+    cfg.terminalId ? 'running' : 'idle',
   );
   const [error, setError] = useState<string | null>(null);
-  const [configOpen, setConfigOpen] = useState(!applet.config.terminalId);
+  const [configOpen, setConfigOpen] = useState(!cfg.terminalId);
 
-  const session = sessions.find(s => s.id === applet.config.sessionId);
-  const sessionProjects = allProjects.filter(p => {
-    // Will be refined — for now show all projects
-    return true;
-  });
+  const session = sessions.find(s => s.id === cfg.sessionId);
 
   const handleSpawn = async () => {
     setStatus('spawning');
     setError(null);
     try {
-      const cfg = applet.config;
       let command: string;
       let args: string[] = [];
+      let backendType = 'shell';
 
-      if (cfg.kind === 'claude_code') {
+      if (cfg.kind === 'shell') {
+        const shell = SHELL_COMMANDS[cfg.shellType ?? DEFAULT_SHELL];
+        command = shell.command;
+        args = shell.args;
+      } else if (cfg.kind === 'claude') {
         command = 'claude';
-        // No args = interactive mode (for future PTY); for now we just use claude CLI
-      } else if (cfg.kind === 'shell') {
-        const isWindows = navigator.platform.toLowerCase().includes('win');
-        command = isWindows ? 'cmd.exe' : 'bash';
+        args = [];
+      } else if (cfg.kind === 'super_claude') {
+        command = 'claude';
+        args = ['--dangerously-skip-permissions'];
       } else if (cfg.kind === 'dev_server') {
         command = cfg.command ?? 'pnpm';
         args = cfg.args ?? ['dev'];
+        backendType = 'dev_server';
       } else {
         setError('Unknown kind');
         setStatus('error');
@@ -59,16 +73,16 @@ export function TerminalApplet({ applet, sessions, allProjects, onUpdate, onClos
         sessionId: cfg.sessionId,
         projectId: cfg.projectId,
         name: applet.title ?? `${cfg.kind}-${Date.now()}`,
-        type: cfg.kind === 'claude_code' ? 'claude_code_interactive' : cfg.kind === 'dev_server' ? 'dev_server' : 'shell',
+        type: backendType,
         command,
-        args: cfg.args ?? args,
+        args,
         cwd,
       });
 
       setTerminalId(terminal.id);
       setStatus('running');
       setConfigOpen(false);
-      onUpdate({ ...applet, config: { ...applet.config, terminalId: terminal.id, command, args: cfg.args ?? args } });
+      onUpdate({ ...applet, config: { ...cfg, terminalId: terminal.id, command, args } });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setStatus('error');
@@ -82,19 +96,21 @@ export function TerminalApplet({ applet, sessions, allProjects, onUpdate, onClos
     } catch {}
     setStatus('exited');
     setTerminalId(undefined);
-    onUpdate({ ...applet, config: { ...applet.config, terminalId: undefined } });
+    onUpdate({ ...applet, config: { ...cfg, terminalId: undefined } });
   };
 
-  const updateConfig = (patch: Partial<Applet['config']>) => {
-    onUpdate({ ...applet, config: { ...applet.config, ...patch } });
+  const updateConfig = (patch: Partial<TerminalAppletConfig>) => {
+    onUpdate({ ...applet, config: { ...cfg, ...patch } });
   };
 
-  const kindLabel = {
-    claude_code: 'CLAUDE',
+  const kindLabel: Record<string, string> = {
     shell: 'SHELL',
+    claude: 'CLAUDE',
+    super_claude: 'SUPER',
     dev_server: 'DEV',
     attach: 'ATTACH',
-  }[applet.config.kind];
+  };
+  const label = kindLabel[cfg.kind] ?? cfg.kind.toUpperCase();
 
   const headerStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 8,
@@ -129,7 +145,7 @@ export function TerminalApplet({ applet, sessions, allProjects, onUpdate, onClos
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0f0a' }}>
       <div style={headerStyle}>
-        <span style={{ color: '#33ff33', fontWeight: 'bold' }}>[{kindLabel}]</span>
+        <span style={{ color: '#33ff33', fontWeight: 'bold' }}>[{label}]</span>
         <span style={{ color: status === 'running' ? '#33ff33' : status === 'error' ? '#ff3333' : '#666' }}>
           {status}
         </span>
@@ -145,42 +161,56 @@ export function TerminalApplet({ applet, sessions, allProjects, onUpdate, onClos
         <div style={{ padding: 10, background: '#0d1f0d', borderBottom: '1px solid #1a3a1a', display: 'grid', gap: 6, fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <label style={{ color: '#666', minWidth: 60 }}>kind:</label>
-            <select value={applet.config.kind} onChange={e => updateConfig({ kind: e.target.value as any })} style={selectStyle} disabled={status === 'running'}>
-              <option value="claude_code">claude_code</option>
+            <select value={cfg.kind} onChange={e => updateConfig({ kind: e.target.value as any })} style={selectStyle} disabled={status === 'running'}>
               <option value="shell">shell</option>
-              <option value="dev_server">dev_server</option>
+              <option value="claude">claude</option>
+              <option value="super_claude">super claude</option>
+              <option value="dev_server">dev server</option>
             </select>
           </div>
+          {cfg.kind === 'shell' && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={{ color: '#666', minWidth: 60 }}>shell:</label>
+              <select value={cfg.shellType ?? DEFAULT_SHELL} onChange={e => updateConfig({ shellType: e.target.value as ShellType })} style={selectStyle} disabled={status === 'running'}>
+                <option value="cmd">cmd.exe</option>
+                <option value="powershell">PowerShell</option>
+                <option value="pwsh">pwsh (PS 7+)</option>
+                <option value="bash">bash</option>
+                <option value="git-bash">Git Bash</option>
+                <option value="wsl">WSL</option>
+              </select>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <label style={{ color: '#666', minWidth: 60 }}>session:</label>
-            <select value={applet.config.sessionId} onChange={e => updateConfig({ sessionId: e.target.value })} style={{ ...selectStyle, flex: 1 }} disabled={status === 'running'}>
+            <select value={cfg.sessionId} onChange={e => updateConfig({ sessionId: e.target.value })} style={{ ...selectStyle, flex: 1 }} disabled={status === 'running'}>
               {sessions.map(s => <option key={s.id} value={s.id}>{s.name ?? s.id.slice(0, 8)}</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <label style={{ color: '#666', minWidth: 60 }}>project:</label>
-            <select value={applet.config.projectId} onChange={e => {
+            <select value={cfg.projectId} onChange={e => {
               const p = allProjects.find(pr => pr.id === e.target.value);
               updateConfig({ projectId: e.target.value, cwd: p?.path });
             }} style={{ ...selectStyle, flex: 1 }} disabled={status === 'running'}>
               {allProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
-          {applet.config.kind === 'dev_server' && (
+          {cfg.kind === 'dev_server' && (
             <>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <label style={{ color: '#666', minWidth: 60 }}>command:</label>
-                <input value={applet.config.command ?? ''} onChange={e => updateConfig({ command: e.target.value })} placeholder="pnpm" style={{ ...selectStyle, flex: 1 }} disabled={status === 'running'} />
+                <input value={cfg.command ?? ''} onChange={e => updateConfig({ command: e.target.value })} placeholder="pnpm" style={{ ...selectStyle, flex: 1 }} disabled={status === 'running'} />
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <label style={{ color: '#666', minWidth: 60 }}>args:</label>
-                <input value={(applet.config.args ?? []).join(' ')} onChange={e => updateConfig({ args: e.target.value.split(/\s+/).filter(Boolean) })} placeholder="dev" style={{ ...selectStyle, flex: 1 }} disabled={status === 'running'} />
+                <input value={(cfg.args ?? []).join(' ')} onChange={e => updateConfig({ args: e.target.value.split(/\s+/).filter(Boolean) })} placeholder="dev" style={{ ...selectStyle, flex: 1 }} disabled={status === 'running'} />
               </div>
             </>
           )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <label style={{ color: '#666', minWidth: 60 }}>cwd:</label>
-            <input value={applet.config.cwd ?? ''} onChange={e => updateConfig({ cwd: e.target.value })} placeholder="working dir" style={{ ...selectStyle, flex: 1 }} disabled={status === 'running'} />
+            <input value={cfg.cwd ?? ''} onChange={e => updateConfig({ cwd: e.target.value })} placeholder="working dir" style={{ ...selectStyle, flex: 1 }} disabled={status === 'running'} />
           </div>
           {status !== 'running' && (
             <button onClick={handleSpawn} style={{ ...btnStyle, padding: '6px 12px', fontSize: 11, marginTop: 4 }}>

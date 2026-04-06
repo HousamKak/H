@@ -105,23 +105,34 @@ export interface CanvasViewport {
   zoom: number;
 }
 
+export type ShellType = 'cmd' | 'powershell' | 'pwsh' | 'bash' | 'git-bash' | 'wsl';
+export type TerminalAppletKind = 'shell' | 'claude' | 'super_claude' | 'dev_server' | 'attach';
+
+export interface TerminalAppletConfig {
+  sessionId: string;
+  projectId: string;
+  kind: TerminalAppletKind;
+  shellType?: ShellType;
+  terminalId?: string;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+}
+
+export interface SessionAppletConfig {
+  sessionId: string;
+  label?: string;
+}
+
 export interface Applet {
   id: string;
-  type: 'terminal';
+  type: 'terminal' | 'session';
   title?: string;
-  // Canvas placement (defaults applied when absent)
   position?: { x: number; y: number };
   width?: number;
   height?: number;
-  config: {
-    sessionId: string;
-    projectId: string;
-    kind: 'claude_code' | 'shell' | 'dev_server' | 'attach';
-    terminalId?: string;
-    command?: string;
-    args?: string[];
-    cwd?: string;
-  };
+  parentId?: string;
+  config: TerminalAppletConfig | SessionAppletConfig;
 }
 
 export interface Workspace {

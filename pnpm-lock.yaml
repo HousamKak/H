@@ -68,6 +68,9 @@ importers:
       '@h/events':
         specifier: workspace:*
         version: link:../events
+      '@h/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@h/orchestrator':
         specifier: workspace:*
         version: link:../orchestrator

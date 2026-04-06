@@ -16,6 +16,7 @@ import { AgentCardRegistry, A2ARouter } from '@h/a2a';
 import { TerminalManager } from '@h/terminal';
 import { StatusReporter } from './status-reporter.js';
 import { CommandParser } from './command-parser.js';
+import { ChatHandler } from './chat-handler.js';
 import { resolve } from 'node:path';
 
 export class Orchestrator {
@@ -36,6 +37,7 @@ export class Orchestrator {
   private terminalManager: TerminalManager;
   private statusReporter: StatusReporter;
   private commandParser: CommandParser;
+  private chatHandler: ChatHandler;
   private focusedSessionId?: string;   // UI focus only, not runtime-scoping
   private currentProjectId?: string;   // active project for focused session
   private assignmentInterval?: ReturnType<typeof setInterval>;
@@ -77,6 +79,10 @@ export class Orchestrator {
 
     this.statusReporter = new StatusReporter(this.projectRepo, this.agentService, this.taskService, this.taskQueue, this.sessionService);
     this.commandParser = new CommandParser();
+    this.chatHandler = new ChatHandler(
+      () => this.providerRegistry.get(),
+      this.statusReporter,
+    );
 
     // Persist events to DB
     this.eventBus.onPersist((event) => {
@@ -436,15 +442,23 @@ export class Orchestrator {
         break;
 
       default:
-        if (this.currentProjectId) {
-          const task = await this.createTask({
+        try {
+          response = await this.chatHandler.handle(message, {
+            sessionId: this.focusedSessionId,
             projectId: this.currentProjectId,
-            title: message.substring(0, 100),
-            description: message,
           });
-          response = `Task created from message: ${task.title} (${task.id})`;
-        } else {
-          response = 'No project selected. Use /project <name> first, or /projects to list available projects.';
+        } catch {
+          // LLM unavailable — fall back to creating a task
+          if (this.currentProjectId) {
+            const task = await this.createTask({
+              projectId: this.currentProjectId,
+              title: message.substring(0, 100),
+              description: message,
+            });
+            response = `Task created from message: ${task.title} (${task.id})`;
+          } else {
+            response = 'No project selected. Use /project <name> first, or /projects to list available projects.';
+          }
         }
     }
 

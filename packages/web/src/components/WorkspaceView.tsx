@@ -15,7 +15,7 @@ import {
   type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { api, type Workspace, type Applet, type Session, type Project, type CanvasViewport } from '../api.js';
+import { api, type Workspace, type Applet, type Session, type Project, type CanvasViewport, type SessionAppletConfig, type TerminalAppletConfig } from '../api.js';
 import { TerminalApplet } from './TerminalApplet.js';
 
 interface Props {
@@ -26,6 +26,7 @@ interface Props {
 }
 
 const DEFAULT_SIZE = { width: 420, height: 300 };
+const SESSION_SIZE = { width: 900, height: 600 };
 const DEFAULT_VIEWPORT: CanvasViewport = { x: 0, y: 0, zoom: 1 };
 
 function generateId() {
@@ -104,7 +105,67 @@ function AppletNode({ data, selected }: { data: AppletNodeData; selected: boolea
   );
 }
 
-const nodeTypes: NodeTypes = { applet: AppletNode };
+// Session group node — visual container for terminals belonging to a session
+interface SessionNodeData extends Record<string, unknown> {
+  applet: Applet;
+  session?: Session;
+  childCount: number;
+  onClose: (id: string) => void;
+}
+
+function SessionNode({ data, selected }: { data: SessionNodeData; selected: boolean }) {
+  const { applet, session, childCount, onClose } = data;
+  const cfg = applet.config as SessionAppletConfig;
+  const name = cfg.label ?? session?.name ?? session?.id?.slice(0, 8) ?? 'Session';
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        background: 'rgba(10, 26, 10, 0.4)',
+        border: selected ? '2px dashed #33ff33' : '2px dashed #1a3a1a',
+        borderRadius: 4,
+        position: 'relative',
+      }}
+    >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={400}
+        minHeight={300}
+        lineStyle={{ borderColor: '#33ff33' }}
+        handleStyle={{ background: '#33ff33', width: 8, height: 8, border: 'none', borderRadius: 0 }}
+      />
+      <div
+        className="applet-drag-handle"
+        style={{
+          padding: '6px 12px',
+          background: selected ? '#1a3a1a' : '#0d1f0d',
+          cursor: 'grab',
+          borderBottom: '1px solid #1a3a1a',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 11,
+          borderRadius: '4px 4px 0 0',
+        }}
+      >
+        <span style={{ color: '#33ccff', fontWeight: 'bold' }}>SESSION</span>
+        <span style={{ color: '#33ff33' }}>{name}</span>
+        <span style={{ color: '#666' }}>{childCount} terminal{childCount !== 1 ? 's' : ''}</span>
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={() => onClose(applet.id)}
+          style={{ background: 'none', color: '#666', border: 'none', cursor: 'pointer', fontSize: 12, padding: '0 4px' }}
+        >
+          x
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes: NodeTypes = { applet: AppletNode, session: SessionNode };
 
 function toNodes(
   applets: Applet[],
@@ -112,23 +173,54 @@ function toNodes(
   allProjects: Project[],
   onUpdate: (a: Applet) => void,
   onClose: (id: string) => void,
-): Node<AppletNodeData>[] {
-  return applets.map((a, i) => {
+): Node[] {
+  const nodes: Node[] = [];
+
+  // Session nodes must come first (React Flow requirement for parent-child)
+  const sessionApplets = applets.filter(a => a.type === 'session');
+  const terminalApplets = applets.filter(a => a.type !== 'session');
+
+  for (const a of sessionApplets) {
+    const cfg = a.config as SessionAppletConfig;
+    const session = sessions.find(s => s.id === cfg.sessionId);
+    const childCount = terminalApplets.filter(t => t.parentId === a.id).length;
+    const width = a.width ?? SESSION_SIZE.width;
+    const height = a.height ?? SESSION_SIZE.height;
+    nodes.push({
+      id: a.id,
+      type: 'session',
+      position: a.position ?? { x: 40, y: 40 },
+      data: { applet: a, session, childCount, onClose } as SessionNodeData,
+      width,
+      height,
+      style: { width, height },
+      dragHandle: '.applet-drag-handle',
+    });
+  }
+
+  for (let i = 0; i < terminalApplets.length; i++) {
+    const a = terminalApplets[i];
     const width = a.width ?? DEFAULT_SIZE.width;
     const height = a.height ?? DEFAULT_SIZE.height;
-    return {
+    const node: Node = {
       id: a.id,
       type: 'applet',
       position: a.position ?? { x: 40 + i * 40, y: 40 + i * 40 },
-      data: { applet: a, sessions, allProjects, onUpdate, onClose },
-      // Top-level dimensions so React Flow skips the "measurement pending" phase
-      // (otherwise the node renders with visibility:hidden until the ResizeObserver fires).
+      data: { applet: a, sessions, allProjects, onUpdate, onClose } as AppletNodeData,
       width,
       height,
       style: { width, height },
       dragHandle: '.applet-drag-handle',
     };
-  });
+    if (a.parentId) {
+      node.parentId = a.parentId;
+      node.extent = 'parent';
+      node.expandParent = true;
+    }
+    nodes.push(node);
+  }
+
+  return nodes;
 }
 
 function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProjectId }: Props) {
@@ -193,17 +285,18 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
     onNodesChange(changes);
 
     const hasPositionEnd = changes.some(c => c.type === 'position' && c.dragging === false);
-    const hasDimensions = changes.some(c => c.type === 'dimensions');
-    if (!hasPositionEnd && !hasDimensions) return;
+    const hasResizeEnd = changes.some(c => c.type === 'dimensions' && (c as any).resizing === false);
+    if (!hasPositionEnd && !hasResizeEnd) return;
 
     // Read current positions/sizes from React Flow's node state
     const posMap = new Map<string, { position: { x: number; y: number }; width?: number; height?: number }>();
     for (const n of getNodes()) {
+      const measured = n.measured as { width?: number; height?: number } | undefined;
       const styleAny = n.style as { width?: number; height?: number } | undefined;
       posMap.set(n.id, {
         position: n.position,
-        width: (n.width ?? styleAny?.width) as number | undefined,
-        height: (n.height ?? styleAny?.height) as number | undefined,
+        width: (measured?.width ?? n.width ?? styleAny?.width) as number | undefined,
+        height: (measured?.height ?? n.height ?? styleAny?.height) as number | undefined,
       });
     }
 
@@ -238,7 +331,7 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
   }, [scheduleSave]);
 
   // Add a new terminal applet at a given canvas position
-  const spawnTerminalAt = useCallback((flowX: number, flowY: number) => {
+  const spawnTerminalAt = useCallback((flowX: number, flowY: number, parentId?: string, kind: 'shell' | 'claude' | 'super_claude' = 'shell') => {
     const sessionId = focusedSessionId ?? sessions[0]?.id;
     const projectId = focusedProjectId ?? allProjects[0]?.id;
     if (!sessionId || !projectId) {
@@ -249,11 +342,12 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
     const newApplet: Applet = {
       id: generateId(),
       type: 'terminal',
-      title: 'Terminal',
-      position: { x: flowX, y: flowY },
+      title: kind === 'claude' ? 'Claude' : kind === 'super_claude' ? 'Super Claude' : 'Terminal',
+      position: { x: parentId ? 30 : flowX, y: parentId ? 50 : flowY },
       width: DEFAULT_SIZE.width,
       height: DEFAULT_SIZE.height,
-      config: { sessionId, projectId, kind: 'shell', cwd: project?.path },
+      parentId,
+      config: { sessionId, projectId, kind, cwd: project?.path } as TerminalAppletConfig,
     };
     setWorkspace(ws => {
       const base = ws ?? { id: 'default', layout: null, applets: [], updatedAt: new Date().toISOString() };
@@ -262,6 +356,30 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
       return next;
     });
   }, [focusedSessionId, focusedProjectId, sessions, allProjects, scheduleSave]);
+
+  // Create a session group at a given canvas position
+  const spawnSessionAt = useCallback(async (flowX: number, flowY: number) => {
+    try {
+      const session = await api.sessions.start({ name: `Session ${Date.now().toString(36)}` });
+      const newApplet: Applet = {
+        id: generateId(),
+        type: 'session',
+        title: session.name ?? 'Session',
+        position: { x: flowX, y: flowY },
+        width: SESSION_SIZE.width,
+        height: SESSION_SIZE.height,
+        config: { sessionId: session.id, label: session.name } as SessionAppletConfig,
+      };
+      setWorkspace(ws => {
+        const base = ws ?? { id: 'default', layout: null, applets: [], updatedAt: new Date().toISOString() };
+        const next = { ...base, applets: [...base.applets, newApplet] };
+        scheduleSave(next.applets, viewportRef.current);
+        return next;
+      });
+    } catch (err) {
+      alert(`Failed to create session: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [scheduleSave]);
 
   const addTerminalAtCenter = useCallback(() => {
     // Place near the center of the visible viewport
@@ -330,6 +448,9 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
           [T] new terminal · right-click for menu · middle-drag or space-drag to pan · Ctrl+scroll to zoom
         </span>
         <div style={{ flex: 1 }} />
+        <button onClick={() => { const vp = viewportRef.current; spawnSessionAt(-vp.x / vp.zoom + 80, -vp.y / vp.zoom + 80); }} title="Add session group at center of view" style={{ background: '#1a3a1a', color: '#33ccff', border: 'none', padding: '4px 12px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+          + SESSION
+        </button>
         <button onClick={addTerminalAtCenter} title="Add terminal at center of view" style={{ background: '#1a3a1a', color: '#33ff33', border: 'none', padding: '4px 12px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
           + TERMINAL
         </button>
@@ -390,40 +511,51 @@ function WorkspaceCanvas({ sessions, allProjects, focusedSessionId, focusedProje
         )}
 
         {/* Context menu */}
-        {contextMenu && (
-          <div
-            style={{
-              position: 'fixed',
-              left: contextMenu.x,
-              top: contextMenu.y,
-              background: '#0a1a0a',
-              border: '1px solid #33ff33',
-              fontFamily: 'JetBrains Mono, monospace',
-              fontSize: 11,
-              minWidth: 160,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
-              zIndex: 1000,
-            }}
-            onClick={e => e.stopPropagation()}
-          >
+        {contextMenu && (() => {
+          const menuItemStyle: React.CSSProperties = {
+            padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #1a3a1a',
+          };
+          const onHover = (e: React.MouseEvent<HTMLDivElement>) => e.currentTarget.style.background = '#1a3a1a';
+          const onLeave = (e: React.MouseEvent<HTMLDivElement>) => e.currentTarget.style.background = 'transparent';
+          return (
             <div
-              onClick={() => { spawnTerminalAt(contextMenu.flowX, contextMenu.flowY); closeContextMenu(); }}
-              style={{ padding: '8px 12px', cursor: 'pointer', color: '#33ff33', borderBottom: '1px solid #1a3a1a' }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#1a3a1a')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              style={{
+                position: 'fixed',
+                left: contextMenu.x,
+                top: contextMenu.y,
+                background: '#0a1a0a',
+                border: '1px solid #33ff33',
+                fontFamily: 'JetBrains Mono, monospace',
+                fontSize: 11,
+                minWidth: 200,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+                zIndex: 1000,
+              }}
+              onClick={e => e.stopPropagation()}
             >
-              + Add Terminal here
+              <div onClick={() => { spawnSessionAt(contextMenu.flowX, contextMenu.flowY); closeContextMenu(); }}
+                style={{ ...menuItemStyle, color: '#33ccff' }} onMouseEnter={onHover} onMouseLeave={onLeave}>
+                + New Session group
+              </div>
+              <div onClick={() => { spawnTerminalAt(contextMenu.flowX, contextMenu.flowY); closeContextMenu(); }}
+                style={{ ...menuItemStyle, color: '#33ff33' }} onMouseEnter={onHover} onMouseLeave={onLeave}>
+                + Add Terminal
+              </div>
+              <div onClick={() => { spawnTerminalAt(contextMenu.flowX, contextMenu.flowY, undefined, 'claude'); closeContextMenu(); }}
+                style={{ ...menuItemStyle, color: '#ffcc33' }} onMouseEnter={onHover} onMouseLeave={onLeave}>
+                + Add Claude
+              </div>
+              <div onClick={() => { spawnTerminalAt(contextMenu.flowX, contextMenu.flowY, undefined, 'super_claude'); closeContextMenu(); }}
+                style={{ ...menuItemStyle, color: '#ff6633' }} onMouseEnter={onHover} onMouseLeave={onLeave}>
+                + Add Super Claude
+              </div>
+              <div onClick={closeContextMenu}
+                style={{ ...menuItemStyle, color: '#666', borderBottom: 'none' }} onMouseEnter={onHover} onMouseLeave={onLeave}>
+                Close
+              </div>
             </div>
-            <div
-              onClick={closeContextMenu}
-              style={{ padding: '8px 12px', cursor: 'pointer', color: '#666' }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#1a3a1a')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            >
-              Close
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );

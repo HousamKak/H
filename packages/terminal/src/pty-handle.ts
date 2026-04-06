@@ -4,7 +4,12 @@ import { createRequire } from 'node:module';
 // node-pty is a CJS native module; load via createRequire so this ESM module
 // can consume it, and defer the require so packages that never spawn PTYs
 // (tests, tooling) don't crash at import time if the native binding is missing.
-const nodeRequire = createRequire(import.meta.url);
+//
+// When esbuild bundles this into CJS (h-backend.cjs), import.meta.url is
+// undefined — fall back to __filename which IS defined in CJS context.
+const nodeRequire = createRequire(
+  typeof __filename !== 'undefined' ? __filename : import.meta.url
+);
 
 type NodePty = {
   spawn: (file: string, args: string[] | string, options: {

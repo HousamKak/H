@@ -144,7 +144,8 @@ export function TerminalApplet({ applet, sessions, allProjects, onUpdate, onClos
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0f0a' }}>
-      <div style={headerStyle}>
+      {/* Header is the drag handle — className tells React Flow this area is draggable */}
+      <div className="applet-drag-handle" style={{ ...headerStyle, cursor: 'grab' }}>
         <span style={{ color: '#33ff33', fontWeight: 'bold' }}>[{label}]</span>
         <span style={{ color: status === 'running' ? '#33ff33' : status === 'error' ? '#ff3333' : '#666' }}>
           {status}
@@ -158,7 +159,7 @@ export function TerminalApplet({ applet, sessions, allProjects, onUpdate, onClos
       </div>
 
       {configOpen && (
-        <div style={{ padding: 10, background: '#0d1f0d', borderBottom: '1px solid #1a3a1a', display: 'grid', gap: 6, fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+        <div className="nodrag nowheel nopan" style={{ padding: 10, background: '#0d1f0d', borderBottom: '1px solid #1a3a1a', display: 'grid', gap: 6, fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <label style={{ color: '#666', minWidth: 60 }}>kind:</label>
             <select value={cfg.kind} onChange={e => updateConfig({ kind: e.target.value as any })} style={selectStyle} disabled={status === 'running'}>
@@ -221,7 +222,13 @@ export function TerminalApplet({ applet, sessions, allProjects, onUpdate, onClos
         </div>
       )}
 
-      <div style={{ flex: 1, position: 'relative' }}>
+      <div
+        className="nodrag nowheel nopan"
+        style={{ flex: 1, position: 'relative', minHeight: 0 }}
+        onPointerDown={e => e.stopPropagation()}
+        onMouseDown={e => e.stopPropagation()}
+        onWheel={e => e.stopPropagation()}
+      >
         {terminalId ? (
           <XTermPanel key={terminalId} mode="websocket" terminalId={terminalId} />
         ) : (

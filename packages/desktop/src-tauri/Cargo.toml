@@ -1,6 +1,6 @@
 [package]
 name = "h-desktop"
-version = "0.2.201"
+version = "0.2.202"
 edition = "2021"
 description = "H — Personal AI Coding Orchestrator (Desktop)"
 

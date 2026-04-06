@@ -42,9 +42,9 @@ interface AppletNodeData extends Record<string, unknown> {
   onClose: (id: string) => void;
 }
 
-// Custom node renderer: wraps TerminalApplet + a drag handle.
-// NOTE: we use React Flow's `dragHandle=".applet-drag-handle"` so that clicks
-// inside inputs/terminal don't drag the whole node.
+// Custom node renderer: wraps TerminalApplet with drag and resize.
+// The entire TerminalApplet header bar acts as the drag handle.
+// Only the xterm area below is isolated from React Flow events.
 function AppletNode({ data, selected }: { data: AppletNodeData; selected: boolean }) {
   const { applet, sessions, allProjects, onUpdate, onClose } = data;
   return (
@@ -62,45 +62,21 @@ function AppletNode({ data, selected }: { data: AppletNodeData; selected: boolea
         position: 'relative',
       }}
     >
-      {/* React Flow resize handles — visible only when the node is selected. */}
+      {/* Resize handles — always visible so user can resize from any edge */}
       <NodeResizer
-        isVisible={selected}
+        isVisible={true}
         minWidth={280}
         minHeight={160}
-        lineStyle={{ borderColor: '#33ff33' }}
-        handleStyle={{ background: '#33ff33', width: 8, height: 8, border: 'none', borderRadius: 0 }}
+        lineStyle={{ borderColor: selected ? '#33ff33' : '#1a3a1a' }}
+        handleStyle={{ background: '#33ff33', width: 7, height: 7, border: 'none', borderRadius: 0, opacity: selected ? 1 : 0.3 }}
       />
-      {/* Drag handle strip above TerminalApplet's own header */}
-      <div
-        className="applet-drag-handle"
-        style={{
-          height: 6,
-          background: selected ? '#1a3a1a' : '#0d1f0d',
-          cursor: 'grab',
-          borderBottom: '1px solid #1a3a1a',
-          flexShrink: 0,
-        }}
-        title="Drag to move"
+      <TerminalApplet
+        applet={applet}
+        sessions={sessions}
+        allProjects={allProjects}
+        onUpdate={onUpdate}
+        onClose={() => onClose(applet.id)}
       />
-      {/* nodrag/nowheel/nopan: React Flow classes that tell its handlers to leave this subtree alone,
-          so xterm can focus its hidden textarea and the terminal can scroll its own buffer.
-          stopPropagation: extra safety — even if React Flow's listeners see the event, don't let
-          them act on it (prevents focus-stealing and selection changes). */}
-      <div
-        className="nodrag nowheel nopan"
-        style={{ flex: 1, minHeight: 0 }}
-        onPointerDown={e => e.stopPropagation()}
-        onMouseDown={e => e.stopPropagation()}
-        onWheel={e => e.stopPropagation()}
-      >
-        <TerminalApplet
-          applet={applet}
-          sessions={sessions}
-          allProjects={allProjects}
-          onUpdate={onUpdate}
-          onClose={() => onClose(applet.id)}
-        />
-      </div>
     </div>
   );
 }

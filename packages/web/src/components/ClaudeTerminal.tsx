@@ -29,10 +29,10 @@ export function ClaudeTerminal({ sessionId, projectId, allProjects }: Props) {
     api.terminals.spawn({
       sessionId,
       projectId,
-      name: 'claude-terminal',
+      name: 'super-claude',
       type: 'shell',
       command: 'claude',
-      args: [],
+      args: ['--dangerously-skip-permissions'],
       cwd: project?.path ?? '.',
     }).then(terminal => {
       setTerminalId(terminal.id);
@@ -68,7 +68,7 @@ export function ClaudeTerminal({ sessionId, projectId, allProjects }: Props) {
         background: '#0a1a0a', borderBottom: '1px solid #1a3a1a',
         fontFamily: 'JetBrains Mono, monospace', fontSize: 11, flexShrink: 0,
       }}>
-        <span style={{ color: '#ffcc33', fontWeight: 'bold' }}>CLAUDE</span>
+        <span style={{ color: '#ff6633', fontWeight: 'bold' }}>SUPER CLAUDE</span>
         <span style={{ color: '#666' }}>with H system access (MCP)</span>
         <span style={{ color: '#444' }}>{project?.name ?? ''}</span>
         <div style={{ flex: 1 }} />

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 use tauri::{
@@ -14,6 +14,19 @@ use tauri::{
 // ============================================================================
 
 struct ApiServer(Mutex<Option<Child>>);
+
+fn log_to_file(app: &tauri::AppHandle, msg: &str) {
+    if let Ok(app_data) = app.path().app_data_dir() {
+        let log_path = app_data.join("h-desktop.log");
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            let _ = writeln!(f, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), msg);
+        }
+    }
+}
 
 fn spawn_api_server(app: &tauri::AppHandle) -> Option<Child> {
     let child = if cfg!(debug_assertions) {
@@ -42,20 +55,37 @@ fn spawn_api_server(app: &tauri::AppHandle) -> Option<Child> {
         std::fs::create_dir_all(&mcp_configs_dir).ok();
         let db_path = data_dir.join("h.db");
 
-        // Locate bundled node.exe sidecar
-        let node_exe = resource_dir
-            .join("binaries")
-            .join("h-node-x86_64-pc-windows-msvc.exe");
+        // Log file for backend stdout/stderr (GUI mode has no console)
+        let log_path = app_data.join("backend.log");
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&log_path);
 
-        // Fall back to system node if sidecar missing (shouldn't happen in bundled builds)
-        let node_cmd: std::path::PathBuf = if node_exe.exists() {
-            node_exe
-        } else {
-            "node".into()
-        };
+        // Locate bundled node.exe sidecar — Tauri NSIS places externalBin
+        // in the same directory as the main executable (resource_dir root),
+        // keeping the target-triple suffix.
+        let sidecar_name = "h-node-x86_64-pc-windows-msvc.exe";
+        let candidates = [
+            resource_dir.join(sidecar_name),                      // NSIS: root
+            resource_dir.join("binaries").join(sidecar_name),     // if nested
+            resource_dir.join("h-node.exe"),                      // stripped triple
+        ];
+        let node_cmd: std::path::PathBuf = candidates
+            .iter()
+            .find(|p| p.exists())
+            .cloned()
+            .unwrap_or_else(|| "node".into());
 
-        Command::new(node_cmd)
-            .arg(&backend_js)
+        log_to_file(app, &format!("resource_dir: {:?}", resource_dir));
+        log_to_file(app, &format!("node_cmd: {:?} (exists: {})", node_cmd, node_cmd.exists()));
+        log_to_file(app, &format!("backend_js: {:?} (exists: {})", backend_js, backend_js.exists()));
+        log_to_file(app, &format!("schema_sql: {:?} (exists: {})", schema_sql, schema_sql.exists()));
+        log_to_file(app, &format!("db_path: {:?}", db_path));
+
+        let mut cmd = Command::new(&node_cmd);
+        cmd.arg(&backend_js)
             .arg("start")
             .arg("--no-telegram")
             .env("H_DB_PATH", db_path.to_string_lossy().to_string())
@@ -63,17 +93,27 @@ fn spawn_api_server(app: &tauri::AppHandle) -> Option<Child> {
             .env("H_SCHEMAS_DIR", schemas_dir.to_string_lossy().to_string())
             .env("H_API_PORT", "3100")
             .env("H_MCP_CONFIG_DIR", mcp_configs_dir.to_string_lossy().to_string())
-            .current_dir(&data_dir)
-            .spawn()
+            .current_dir(&data_dir);
+
+        // Redirect backend stdout/stderr to log file so we can diagnose crashes
+        if let Ok(f) = log_file {
+            let stderr_f = f.try_clone().unwrap_or_else(|_| {
+                std::fs::File::open(std::path::Path::new("/dev/null")).unwrap()
+            });
+            cmd.stdout(Stdio::from(f));
+            cmd.stderr(Stdio::from(stderr_f));
+        }
+
+        cmd.spawn()
     };
 
     match child {
         Ok(c) => {
-            println!("[H Desktop] API server started (pid: {})", c.id());
+            log_to_file(app, &format!("API server started (pid: {})", c.id()));
             Some(c)
         }
         Err(e) => {
-            eprintln!("[H Desktop] Failed to start API server: {}", e);
+            log_to_file(app, &format!("FAILED to start API server: {}", e));
             None
         }
     }

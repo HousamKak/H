@@ -95,7 +95,13 @@ export function XTermPanel({ mode = 'websocket', terminalId, ptyId, command, arg
 
     const ws = new WebSocket(`${WS_BASE}/ws/terminals/${terminalId}`);
 
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      setConnected(true);
+      // Sync xterm's current dimensions to the backend PTY on connect.
+      const cols = term.cols;
+      const rows = term.rows;
+      if (cols > 0 && rows > 0) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    };
 
     ws.onmessage = (msg) => {
       try {
@@ -126,15 +132,24 @@ export function XTermPanel({ mode = 'websocket', terminalId, ptyId, command, arg
       if (status !== 'exited') setStatus('disconnected');
     };
 
-    // Send keystrokes
+    // Send keystrokes raw — the backend now runs a real PTY which handles
+    // echo, line editing, and prompts natively.
     const disposeData = term.onData((data) => {
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({ type: 'stdin', data }));
       }
     });
 
+    // Forward xterm size changes (from FitAddon) to the backend PTY
+    const disposeResize = term.onResize(({ cols, rows }) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    });
+
     return () => {
       disposeData.dispose();
+      disposeResize.dispose();
       ws.close();
     };
   }, [mode, terminalId]);

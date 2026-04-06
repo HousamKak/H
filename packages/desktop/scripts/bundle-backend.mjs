@@ -37,7 +37,7 @@ await build({
   target: 'node20',
   format: 'cjs',
   outfile: OUT_FILE,
-  external: ['better-sqlite3'],
+  external: ['better-sqlite3', '@homebridge/node-pty-prebuilt-multiarch'],
   packages: 'bundle',
   logLevel: 'info',
   minify: false,
@@ -65,13 +65,17 @@ if (existsSync(dbSchemaSrc)) {
   await copyFile(dbSchemaSrc, dbSchemaDest);
 }
 
-// Install better-sqlite3 (with its deps: bindings, file-uri-to-path) standalone
-console.log('[bundle] Installing better-sqlite3 with deps...');
+// Install native deps (better-sqlite3, node-pty) standalone. These cannot be
+// bundled by esbuild — they ship .node / .dll binaries that must live on disk.
+console.log('[bundle] Installing native deps (better-sqlite3, node-pty)...');
 const pkgJson = {
   name: 'h-backend-runtime',
   version: '0.0.0',
   private: true,
-  dependencies: { 'better-sqlite3': '^11.10.0' },
+  dependencies: {
+    'better-sqlite3': '^11.10.0',
+    '@homebridge/node-pty-prebuilt-multiarch': '^0.13.1',
+  },
 };
 await writeFile(join(BACKEND_OUT_DIR, 'package.json'), JSON.stringify(pkgJson, null, 2));
 

@@ -17,8 +17,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@h/types": "workspace:*",
+    "@h/db": "workspace:*",
     "@h/events": "workspace:*",
-    "@h/db": "workspace:*"
+    "@h/types": "workspace:*",
+    "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1"
   }
 }

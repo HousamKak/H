@@ -2,19 +2,27 @@ import type { Terminal, SpawnTerminalInput, TerminalStatus } from '@h/types';
 import type { EventBus } from '@h/events';
 import { TerminalRepository } from '@h/db';
 import { ProcessHandle } from './process-handle.js';
+import { PtyHandle } from './pty-handle.js';
 import { OutputParser, type ClaudeCodeEvent } from './output-parser.js';
 
 export type TerminalOutputHandler = (chunk: string, stream: 'stdout' | 'stderr') => void;
 export type TerminalExitHandler = (exitCode: number | null) => void;
 
+type AnyHandle = ProcessHandle | PtyHandle;
+
 interface ManagedTerminal {
   terminal: Terminal;
-  handle: ProcessHandle;
+  handle: AnyHandle;
   parser?: OutputParser;
   eventHandlers: Array<(event: ClaudeCodeEvent) => void>;
   outputHandlers: Set<TerminalOutputHandler>;
   exitHandlers: Set<TerminalExitHandler>;
 }
+
+// Terminal types that should run under a real PTY (echo, cursor control, ANSI).
+// Everything else (automated claude, dev servers, watchers) keeps pipes so stderr
+// stays separate and there is no terminal emulation overhead.
+const INTERACTIVE_TYPES: ReadonlySet<string> = new Set(['shell', 'claude_code_interactive']);
 
 export class TerminalManager {
   private terminals: Map<string, ManagedTerminal> = new Map();
@@ -26,16 +34,26 @@ export class TerminalManager {
 
   /**
    * Spawn a generic terminal/process.
+   * Interactive types (shell, claude_code_interactive) get a real PTY so
+   * prompts/echo/ANSI work; other types use piped stdio.
    */
   async spawn(input: SpawnTerminalInput): Promise<Terminal> {
     const terminal = this.terminalRepo.create(input);
+    const usePty = INTERACTIVE_TYPES.has(input.type ?? 'shell');
 
-    const handle = new ProcessHandle({
-      command: input.command,
-      args: input.args,
-      cwd: input.cwd,
-      env: input.env,
-    });
+    const handle: AnyHandle = usePty
+      ? new PtyHandle({
+          command: input.command,
+          args: input.args,
+          cwd: input.cwd,
+          env: input.env,
+        })
+      : new ProcessHandle({
+          command: input.command,
+          args: input.args,
+          cwd: input.cwd,
+          env: input.env,
+        });
 
     const managed: ManagedTerminal = { terminal, handle, eventHandlers: [], outputHandlers: new Set(), exitHandlers: new Set() };
     this.terminals.set(terminal.id, managed);
@@ -143,6 +161,16 @@ export class TerminalManager {
   write(terminalId: string, data: string): void {
     const managed = this.terminals.get(terminalId);
     if (managed) managed.handle.write(data);
+  }
+
+  /**
+   * Resize a terminal's PTY (no-op for pipe-based terminals).
+   */
+  resize(terminalId: string, cols: number, rows: number): void {
+    const managed = this.terminals.get(terminalId);
+    if (managed && managed.handle instanceof PtyHandle) {
+      managed.handle.resize(cols, rows);
+    }
   }
 
   /**

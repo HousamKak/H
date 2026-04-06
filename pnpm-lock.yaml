@@ -290,6 +290,9 @@ importers:
       '@h/types':
         specifier: workspace:*
         version: link:../types
+      '@homebridge/node-pty-prebuilt-multiarch':
+        specifier: ^0.13.1
+        version: 0.13.1
 
   packages/tools:
     dependencies:
@@ -912,6 +915,10 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@homebridge/node-pty-prebuilt-multiarch@0.13.1':
+    resolution: {integrity: sha512-ccQ60nMcbEGrQh0U9E6x0ajW9qJNeazpcM/9CH6J8leyNtJgb+gu24WTBAfBUVeO486ZhscnaxLEITI2HXwhow==}
+    engines: {node: '>=18.0.0 <25.0.0'}
 
   '@hono/node-server@1.19.12':
     resolution: {integrity: sha512-txsUW4SQ1iilgE0l9/e9VQWmELXifEFvmdA1j6WFh/aFPj99hIntrSsq/if0UWyGVkmrRPKA1wCeP+UCr1B9Uw==}
@@ -1945,6 +1952,9 @@ packages:
     resolution: {integrity: sha512-6u9UwL0HlAl21+agMN3YAMXcKByMqwGx+pq+P76vii5f7hTPtKDp08/H9py6DY+cfDw7kQNTGEj/rly3IgbNQA==}
     engines: {node: '>=10'}
 
+  node-addon-api@7.1.1:
+    resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
+
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
     engines: {node: '>=10.5.0'}
@@ -2757,6 +2767,11 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.0':
     optional: true
+
+  '@homebridge/node-pty-prebuilt-multiarch@0.13.1':
+    dependencies:
+      node-addon-api: 7.1.1
+      prebuild-install: 7.1.3
 
   '@hono/node-server@1.19.12(hono@4.12.10)':
     dependencies:
@@ -3810,6 +3825,8 @@ snapshots:
   node-abi@3.89.0:
     dependencies:
       semver: 7.7.4
+
+  node-addon-api@7.1.1: {}
 
   node-domexception@1.0.0: {}
 

@@ -612,12 +612,14 @@ export async function startApiServer(orchestrator: Orchestrator, port?: number):
       }
     });
 
-    // Handle stdin from client
+    // Handle stdin / resize / kill from client
     ws.on('message', (msg) => {
       try {
         const parsed = JSON.parse(msg.toString());
         if (parsed.type === 'stdin' && typeof parsed.data === 'string') {
           orchestrator.terminals.write(terminalId, parsed.data);
+        } else if (parsed.type === 'resize' && typeof parsed.cols === 'number' && typeof parsed.rows === 'number') {
+          orchestrator.terminals.resize(terminalId, parsed.cols, parsed.rows);
         } else if (parsed.type === 'kill') {
           orchestrator.terminals.kill(terminalId).catch(() => {});
         }
